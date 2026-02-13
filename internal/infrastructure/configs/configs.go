@@ -1,0 +1,116 @@
+package configs
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+
+	"log"
+
+	"github.com/ilyakaznacheev/cleanenv"
+	"go.uber.org/multierr"
+	"go.uber.org/zap/zapcore"
+)
+
+var C Configuration
+
+func LoadConfig(envFilePath string) error {
+	cfg := &Configuration{}
+
+	if errConfig := cleanenv.ReadConfig(envFilePath, cfg); errConfig != nil {
+		if errEnv := cleanenv.ReadEnv(cfg); errEnv != nil {
+			log.Fatal(multierr.Combine(errConfig, errEnv))
+		}
+	}
+
+	cfg.PrepareConfig()
+	C = *cfg
+
+	return nil
+}
+
+type Configuration struct {
+	App struct {
+		Env   string `env:"APP_ENV" env-default:"DEVELOPMENT"` // DEVELOPMENT, PRODUCTION
+		Debug bool   `env:"APP_DEBUG" env-default:"True"`
+
+		Name string `env:"APP_NAME" env-default:"coinhub-service"`
+		Host string `env:"APP_HOST" env-default:"0.0.0.0"`
+		Port string `env:"APP_PORT" env-default:"8001"`
+
+		GracePeriod int    `env:"APP_GRACE_PERIOD" env-default:"1000"`
+		Address     string `env:"APP_ADDRESS" env-default:"localhost:8001"`
+
+		InstType string `env:"APP_INST_TYPE" env-required:"true"` // API, WORKER
+		Version  string `env:"APP_VERSION" env-required:"true"`
+		TimeZone string `env:"APP_TIMEZONE" env-required:"true"`
+
+		CORSAllow string `env:"APP_CORS_ALLOW" env-default:"http://localhost:8001"`
+
+		UnderMaintenance bool `env:"APP_UNDER_MAINTENANCE" env-default:"false"`
+
+		JWTSecret     string `env:"APP_JWT_SECRET" env-default:"thisisbestsecretintheworldsomething"`
+		SessionSecret string `env:"APP_SESSION_SECRET" env-default:"thisisbestsecretintheworldbrother"`
+
+		// ClientAddress string `env:"APP_CLIENT_ADDRESS" env-required:"true"`
+	}
+
+	Lang struct {
+		Locale         string `env:"LANG_LOCALE" env-default:"en"`
+		FallbackLocale string `env:"LANG_FALLBACK" env-default:"en"`
+	}
+
+	Observe struct {
+		// log levels : info, warn, error, debug, fatal, panic or trace
+		LogLevel  zapcore.Level `env:"OBSERVE_LOG_LEVEL" env-default:"debug"`
+		SentryDSN string        `env:"OBSERVE_SENTRY_DSN"`
+	}
+
+	Storage struct {
+		DatabaseUrl string `env:"DATABASE_URL" env-required:"true"`
+
+		Redis struct {
+			Host     string `env:"STORAGE_REDIS_HOST" env-required:"true"`
+			Port     int    `env:"STORAGE_REDIS_PORT" env-required:"true"`
+			Username string `env:"STORAGE_REDIS_USERNAME" env-required:"true"`
+			Password string `env:"STORAGE_REDIS_PASSWORD" env-required:"true"`
+		}
+	}
+
+	// Mail struct {
+	// 	SMTPHost     string `env:"MAIL_SMTP_HOST" default:"smtp.gmail.com"`
+	// 	SMTPPort     int    `env:"MAIL_SMTP_PORT" default:"587"`
+	// 	SMTPUsername string `env:"MAIL_SMTP_USERNAME" env-required:"true"`
+	// 	SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
+	// 	FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
+	// 	FromName     string `env:"MAIL_FROM_NAME" default:"All In Hype"`
+	// }
+
+	// Service struct {
+	// 	QueueDB int `env:"SERVICE_QUEUE_DB" env-default:"7"`
+	// 	CacheDB int `env:"SERVICE_CACHE_DB" env-default:"4"`
+	// }
+
+	// Firebase struct {
+	// 	ServiceAccountJSON string `env:"FIREBASE_SERVICE_ACCOUNT_JSON"`
+	// 	ServiceAccountPath string `env:"FIREBASE_SERVICE_ACCOUNT_PATH" env-default:"./certs/firebase-service-account.json"`
+	// }
+
+	ServiceURLAPI string `env:"SERVICE_URL_API" env-default:"https://local.host"`
+}
+
+func (c *Configuration) PrepareConfig() {
+	c.App.Env = strings.ToUpper(c.App.Env)
+}
+
+func (c *Configuration) RedisAddress() string {
+	return fmt.Sprintf("%s:%d", c.Storage.Redis.Host, c.Storage.Redis.Port)
+}
+
+func (c *Configuration) CoolifyAddress() string {
+	u, err := url.Parse(c.ServiceURLAPI)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}

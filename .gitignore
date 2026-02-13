@@ -1,0 +1,33 @@
+### Go build artifacts
+bin/
+build/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+### Go modules & dependencies
+vendor/
+
+### IDE / editor settings
+.vscode/
+.idea/
+*.iml
+
+### OS files
+.DS_Store
+
+### Logs & coverage
+*.log
+coverage.out
+coverage/
+
+### Env / secrets
+.env
+.env.*
+
+
