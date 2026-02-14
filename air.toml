@@ -3,7 +3,7 @@ testdata_dir = "testdata"
 tmp_dir = "/tmp/air"
 
 [build]
-args_bin = []
+args_bin = ["api"]
 bin = "/tmp/air/main"
 cmd = "mkdir -p /tmp/air && go build -o /tmp/air/main ./cmd/api && chmod +x /tmp/air/main"
 delay = 1000

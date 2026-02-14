@@ -23,10 +23,12 @@ const (
 )
 
 type User struct {
-	gorm.Model
-	ID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 
-	UserProfile Profile
+	UserProfile Profile `gorm:"foreignKey:UserID"`
 
 	Gmail                   *string                 `gorm:"unique;index"`
 	GmailVerificationStatus GmailVerificationStatus `gorm:"type:varchar(20);default:'not_registered';not null"`
@@ -38,21 +40,26 @@ type User struct {
 }
 
 func NewUser(firstname, lastname string, gmail string, gmailVerificationStatus GmailVerificationStatus, status Status) *User {
-	profile := NewProfile(firstname, lastname)
-	return &User{
-		UserProfile:             *profile,
+	user := &User{
 		Gmail:                   &gmail,
 		GmailVerificationStatus: gmailVerificationStatus,
 		Status:                  status,
 	}
+	user.UserProfile = *NewProfile(firstname, lastname)
+	return user
 }
 
 type Profile struct {
-	gorm.Model
-	Firstname string `gorm:"size:100;not null"` // cannot be empty, limited to 100 chars
-	Lastname  string `gorm:"size:100;not null"` // cannot be empty, limited to 100 chars
-	AvatarUrl string `gorm:"size:255"`          // optional, max length 255 chars
-	Bio       string `gorm:"size:500"`          // optional, max length 500 chars
+	ID        uint `gorm:"primaryKey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+
+	UserID    uuid.UUID `gorm:"type:uuid;uniqueIndex;not null"` // Foreign key to User
+	Firstname string    `gorm:"size:100;not null"`              // cannot be empty, limited to 100 chars
+	Lastname  string    `gorm:"size:100;not null"`              // cannot be empty, limited to 100 chars
+	AvatarUrl string    `gorm:"size:255"`                       // optional, max length 255 chars
+	Bio       string    `gorm:"size:500"`                       // optional, max length 500 chars
 }
 
 func NewProfile(firstname, lastname string) *Profile {

@@ -13,19 +13,25 @@ type UserRepository struct {
 	db *gorm.DB
 }
 
-// Implement the domain:repositories interfaces here..
 func NewUserRepository(db *gorm.DB) repositories.UserRepository {
 	return &UserRepository{db: db}
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *entities.User) error {
-	return r.db.WithContext(ctx).Create(user).Error
+	if err := r.db.Create(&user).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, userId uuid.UUID) error {
-	return r.db.WithContext(ctx).Delete(&entities.User{}, userId).Error
+	if err := r.db.Where("user_id = ?", userId).Delete(ctx).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, userId uuid.UUID) error {
+	// Implement here...
 	return nil
 }
