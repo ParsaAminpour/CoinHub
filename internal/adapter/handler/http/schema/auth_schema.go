@@ -5,22 +5,30 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type RegisterUserRequest struct {
-	Firstname string `json:"firstname" binding:"required,FirstnameCheck"`
-	Lastname  string `json:"lastname" binding:"required,LastnameCheck"`
-	Gmail     string `json:"gmail" binding:"required,EmailCheck"`
+	Username  string `json:"username" binding:"required,usernamecheck"`
+	Firstname string `json:"firstname" binding:"required,firstnamecheck"`
+	Lastname  string `json:"lastname" binding:"required,lastnamecheck"`
+	Gmail     string `json:"gmail" binding:"required,emailcheck"`
+}
+
+var UsernameCheck validator.Func = func(f1 validator.FieldLevel) bool {
+	field := f1.Field().Interface().(string)
+	zap.S().Infow("username field", "value", field)
+	return len(field) >= 2 && len(field) <= 20
 }
 
 var FirstnameCheck validator.Func = func(f1 validator.FieldLevel) bool {
 	field := f1.Field().Interface().(string)
-	return len(field) >= 2 && len(field) <= 100
+	return len(field) >= 2 && len(field) <= 20
 }
 
 var LastnameCheck validator.Func = func(f1 validator.FieldLevel) bool {
 	field := f1.Field().Interface().(string)
-	return len(field) >= 2 && len(field) <= 100
+	return len(field) >= 2 && len(field) <= 20
 }
 
 var EmailCheck validator.Func = func(f1 validator.FieldLevel) bool {
@@ -30,6 +38,7 @@ var EmailCheck validator.Func = func(f1 validator.FieldLevel) bool {
 
 type RegisterUserResponse struct {
 	ID        uuid.UUID `json:"id"`
+	Username  string    `json:"username"`
 	Firstname string    `json:"firstname"`
 	Lastname  string    `json:"lastname"`
 	Gmail     string    `json:"gmail"`

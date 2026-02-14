@@ -2,7 +2,6 @@ package configs
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	"log"
@@ -105,12 +104,4 @@ func (c *Configuration) PrepareConfig() {
 
 func (c *Configuration) RedisAddress() string {
 	return fmt.Sprintf("%s:%d", c.Storage.Redis.Host, c.Storage.Redis.Port)
-}
-
-func (c *Configuration) CoolifyAddress() string {
-	u, err := url.Parse(c.ServiceURLAPI)
-	if err != nil {
-		return ""
-	}
-	return u.Host
 }

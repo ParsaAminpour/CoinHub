@@ -28,6 +28,7 @@ type User struct {
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 
+	Username    *string `gorm:"unique;index;not null"`
 	UserProfile Profile `gorm:"foreignKey:UserID"`
 
 	Gmail                   *string                 `gorm:"unique;index"`

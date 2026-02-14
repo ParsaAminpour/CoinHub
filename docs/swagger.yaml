@@ -1,0 +1,72 @@
+definitions:
+  helper.ErrorResponse:
+    properties:
+      error: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  schema.RegisterUserRequest:
+    properties:
+      firstname:
+        type: string
+      gmail:
+        type: string
+      lastname:
+        type: string
+      username:
+        type: string
+    required:
+    - firstname
+    - gmail
+    - lastname
+    - username
+    type: object
+  schema.RegisterUserResponse:
+    properties:
+      firstname:
+        type: string
+      gmail:
+        type: string
+      id:
+        type: string
+      lastname:
+        type: string
+      username:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /v1/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Register a new user with username, firstname, lastname, and gmail
+      parameters:
+      - description: User registration data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.RegisterUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User successfully registered
+          schema:
+            $ref: '#/definitions/schema.RegisterUserResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Register a new user
+      tags:
+      - auth
+swagger: "2.0"

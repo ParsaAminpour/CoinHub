@@ -3,6 +3,7 @@ package cmd
 import (
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/logger"
+	"coinhub/internal/infrastructure/swagger"
 	"context"
 	"os"
 	"os/signal"
@@ -31,8 +32,12 @@ func init() {
 		zap.S().Fatalw("unable to load configuration")
 	}
 	if err := logger.InitLogger(&configs.C); err != nil {
-		zap.S().Error("error in initializing the zap logger")
+		zap.S().Fatalw("error in initializing the zap logger")
 	}
+	if err := swagger.InitSwagger(&configs.C); err != nil {
+		zap.S().Fatalf("Error while config swagger setting : %v", err)
+	}
+
 	defer func() {
 		_ = logger.SyncLogger()
 		sentry.Flush(2 * time.Second)
