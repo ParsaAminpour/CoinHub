@@ -51,6 +51,7 @@ type Configuration struct {
 		JWTSecret     string `env:"APP_JWT_SECRET" env-default:"thisisbestsecretintheworldsomething"`
 		SessionSecret string `env:"APP_SESSION_SECRET" env-default:"thisisbestsecretintheworldbrother"`
 
+		HDWalletMnemonic string `env:"HDWALLET_MNEMONIC" env-required:"true"`
 		// ClientAddress string `env:"APP_CLIENT_ADDRESS" env-required:"true"`
 	}
 

@@ -13,6 +13,7 @@ type RegisterUserRequest struct {
 	Firstname string `json:"firstname" binding:"required,firstnamecheck"`
 	Lastname  string `json:"lastname" binding:"required,lastnamecheck"`
 	Gmail     string `json:"gmail" binding:"required,emailcheck"`
+	Password  string `json:"password" binding:"required"`
 }
 
 var UsernameCheck validator.Func = func(f1 validator.FieldLevel) bool {
@@ -42,4 +43,21 @@ type RegisterUserResponse struct {
 	Firstname string    `json:"firstname"`
 	Lastname  string    `json:"lastname"`
 	Gmail     string    `json:"gmail"`
+	JWTToken  string    `json:"jwt_token"`
+}
+
+type LoginUserWithUsernameRequest struct {
+	Username string `json:"username" binding:"required,usernamecheck"`
+	Password string `json:"password" binding:"required"`
+}
+
+type LoginWithGmailRequest struct {
+	Gmail    string `json:"gmail" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+type LoginUserResponse struct {
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	JWTToken string `json:"jwt_token"`
 }

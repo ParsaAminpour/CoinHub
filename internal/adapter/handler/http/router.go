@@ -33,7 +33,7 @@ func SetupRouter(app *internal.Application) error {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
 
-	// TODO : setup middlewares
+	// TODO : setup middlewares here
 	router := gin.Default()
 	router.SetTrustedProxies([]string{"192.168.1.2"})
 
@@ -79,6 +79,8 @@ func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup := r.Group("auth")
 	authGroup.POST("/register", apiPostHandler(RegisterUser, app))
+	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsername, app))
+	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmail, app))
 	return nil
 }
 

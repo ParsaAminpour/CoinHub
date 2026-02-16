@@ -1,4 +1,4 @@
-package repository
+package postgres
 
 import (
 	"coinhub/internal/domain/entities"
@@ -18,7 +18,7 @@ func NewUserRepository(db *gorm.DB) repositories.UserRepository {
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *entities.User) error {
-	if err := r.db.Create(&user).Error; err != nil {
+	if err := r.db.WithContext(ctx).Create(&user).Error; err != nil {
 		return err
 	}
 	return nil
@@ -34,4 +34,28 @@ func (r *UserRepository) Delete(ctx context.Context, userId uuid.UUID) error {
 func (r *UserRepository) Update(ctx context.Context, userId uuid.UUID) error {
 	// Implement here...
 	return nil
+}
+
+func (r *UserRepository) GetUserByID(ctx context.Context, userID uuid.UUID) (*entities.User, error) {
+	var user entities.User
+	if err := r.db.WithContext(ctx).Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (*entities.User, error) {
+	var user entities.User
+	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) GetUserByGmail(ctx context.Context, gmail string) (*entities.User, error) {
+	var user entities.User
+	if err := r.db.WithContext(ctx).Where("gmail = ?", gmail).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
 }

@@ -19,6 +19,9 @@ func migrateDatabase(app *internal.Application) error {
 		mgModels := []interface{}{
 			&entities.User{},
 			&entities.Profile{},
+			&entities.WalletAccount{},
+			&entities.Asset{},
+			&entities.TradingPair{},
 		}
 
 		zap.S().Debugw("starting migrations", zap.Int("count", len(mgModels)))

@@ -29,19 +29,25 @@ type User struct {
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 
 	Username    *string `gorm:"unique;index;not null"`
+	Password    *string `gorm:"size:255;not null"`
 	UserProfile Profile `gorm:"foreignKey:UserID"`
 
 	Gmail                   *string                 `gorm:"unique;index"`
 	GmailVerificationStatus GmailVerificationStatus `gorm:"type:varchar(20);default:'not_registered';not null"`
 	GmailVerifiedAt         *time.Time              `gorm:"default:null"`
 
+	WalletAccount WalletAccount `gorm:"foreignKey:UserID"`
+
 	Status        Status  `gorm:"type:varchar(20);default:'active';not null"`
 	IsVerified    bool    `gorm:"default:false;not null"` // when the gmail becomes verified
 	LocalTimezone *string `gorm:"default:'0';not null"`
 }
 
-func NewUser(firstname, lastname string, gmail string, gmailVerificationStatus GmailVerificationStatus, status Status) *User {
+func NewUser(firstname, lastname string, username, gmail, hashedPassword string, gmailVerificationStatus GmailVerificationStatus, status Status) *User {
 	user := &User{
+		Username: &username,
+		Password: &hashedPassword,
+
 		Gmail:                   &gmail,
 		GmailVerificationStatus: gmailVerificationStatus,
 		Status:                  status,
