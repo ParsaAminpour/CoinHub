@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-redis/redis/v8"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"go.uber.org/zap"
@@ -24,6 +25,8 @@ type Application struct {
 
 	Redis     *redis.Client // add it later
 	MySqlGorm *gorm.DB
+
+	ETHClient *ethclient.Client
 
 	hdWallet *hdwallet.Wallet // private - only accessible through WalletService
 }
@@ -49,9 +52,14 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 		zap.S().Fatalw("error in registering repositories: %s", err.Error())
 	}
 
+	if err := app.registerETHClient(); err != nil {
+		zap.S().Fatalw("error in registering eth client: %s", err.Error())
+	}
+
 	if err := app.registerServices(); err != nil {
 		zap.S().Fatalw("error in registering services: %s", err.Error())
 	}
+
 	return app
 }
 
@@ -79,9 +87,24 @@ func (app *Application) registerHDWallet() error {
 	return nil
 }
 
+func (app *Application) registerETHClient() error {
+	var baseUrl string
+	if app.Configs.App.NetworkStatus == "MAINNET" {
+		baseUrl = app.Configs.App.ETHClientMainnet
+	} else {
+		baseUrl = app.Configs.App.ETHClientTestnet
+	}
+	client, err := ethclient.Dial(baseUrl)
+	if err != nil {
+		return err
+	}
+	app.ETHClient = client
+	return nil
+}
+
 func (app *Application) registerServices() error {
 	// WalletService encapsulates HDWallet access
-	app.WalletService = services.NewWalletService(app.hdWallet)
+	app.WalletService = services.NewWalletService(app.hdWallet, app.ETHClient)
 	return nil
 }
 

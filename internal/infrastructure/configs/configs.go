@@ -52,7 +52,9 @@ type Configuration struct {
 		SessionSecret string `env:"APP_SESSION_SECRET" env-default:"thisisbestsecretintheworldbrother"`
 
 		HDWalletMnemonic string `env:"HDWALLET_MNEMONIC" env-required:"true"`
-		// ClientAddress string `env:"APP_CLIENT_ADDRESS" env-required:"true"`
+		ETHClientTestnet string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
+		ETHClientMainnet string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
+		NetworkStatus    string `env:"NETWORK_STATUS" env-default:"TESTNET"`
 	}
 
 	Lang struct {
