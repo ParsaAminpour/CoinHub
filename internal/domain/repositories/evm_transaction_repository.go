@@ -6,6 +6,6 @@ import (
 )
 
 type EVMTransactionRepository interface {
-	CreateTransaction(ctx context.Context, evmTx *entities.EVMTransaction) error
+	CreateTransaction(ctx context.Context, evmTx *entities.EvmTransaction) error
 	GetTransactionByHash(ctx context.Context, hash string) error
 }

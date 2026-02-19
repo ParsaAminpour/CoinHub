@@ -11,17 +11,21 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/google/uuid"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
+	"go.uber.org/zap"
 )
 
 type WalletService interface {
-	GenerateWalletAddress(userID uuid.UUID) (accounts.Account, error)
+	GenerateWalletAddress(userID uint32) (accounts.Account, error)
+	CreateNativeTransferTx(ctx context.Context, client *ethclient.Client, fromPk string, toPk string, amountWei *big.Int, gasLimitUnit uint64, gasPriceWei *big.Int) (*types.Transaction, error)
+	EthSignTransaction(ctx context.Context, tx *types.Transaction, account accounts.Account) (*types.Transaction, error)
+	SendSignedTransaction(ctx context.Context, signedTx *types.Transaction) (string, error)
+	GetWalletAccountByUserID(idx uint32) (accounts.Account, error)
 }
 
 type walletService struct {
 	ledger *hdwallet.Wallet
-	client *ethclient.Client
+	client *ethclient.Client // as same as ETHClient in Application
 }
 
 func NewWalletService(ledger *hdwallet.Wallet, client *ethclient.Client) WalletService {
@@ -31,9 +35,8 @@ func NewWalletService(ledger *hdwallet.Wallet, client *ethclient.Client) WalletS
 	}
 }
 
-func (ws *walletService) GenerateWalletAddress(userID uuid.UUID) (accounts.Account, error) {
-	userNumber := userID.ID()
-	return ws.generateNewPublicKey(userNumber)
+func (ws *walletService) GenerateWalletAddress(index uint32) (accounts.Account, error) {
+	return ws.generateNewPublicKey(index)
 }
 
 // getBIP44Format returns the BIP-44 derivation path format
@@ -60,6 +63,17 @@ func (ws *walletService) generateNewPublicKey(userNumber uint32) (accounts.Accou
 	return account, nil
 }
 
+func (ws *walletService) GetWalletAccountByUserID(idx uint32) (accounts.Account, error) {
+	bip44 := ws.getBIP44Format(idx)
+	path := hdwallet.MustParseDerivationPath(bip44)
+	account, err := ws.ledger.Derive(path, false)
+
+	if err != nil {
+		return accounts.Account{}, err
+	}
+	return account, nil
+}
+
 // construct transaction
 // sign transaction
 // send transaction
@@ -68,7 +82,7 @@ func (ws *walletService) generateNewPublicKey(userNumber uint32) (accounts.Accou
 // NOTE : Gas price that will get your transaction included pretty fast in a block is 30 gwei, 0 means use the network suggestion.
 func (
 	ws *walletService,
-) createNativeTransferTx(
+) CreateNativeTransferTx(
 	ctx context.Context,
 	client *ethclient.Client,
 	fromPk string,
@@ -80,6 +94,7 @@ func (
 	fromAddress := common.HexToAddress(fromPk)
 	toAddress := common.HexToAddress(toPk)
 	nonce, err := client.PendingNonceAt(ctx, fromAddress)
+	zap.S().Infow("The nonce for address", "fromAddress", fromAddress, "nonce", nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -89,11 +104,11 @@ func (
 			return nil, err
 		}
 	}
-	tx := types.NewTransaction(nonce, toAddress, amountWei, gasLimitUnit, gasPriceWei, nil)
+	tx := types.NewTransaction(15, toAddress, amountWei, gasLimitUnit, gasPriceWei, nil)
 	return tx, nil
 }
 
-func (ws *walletService) ethSignTransaction(ctx context.Context, tx *types.Transaction, account accounts.Account) (*types.Transaction, error) {
+func (ws *walletService) EthSignTransaction(ctx context.Context, tx *types.Transaction, account accounts.Account) (*types.Transaction, error) {
 	chainId, err := ws.client.NetworkID(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +124,7 @@ func (ws *walletService) ethSignTransaction(ctx context.Context, tx *types.Trans
 	return signedTx, nil
 }
 
-func (ws *walletService) sendSignedTransaction(ctx context.Context, signedTx *types.Transaction) (string, error) {
+func (ws *walletService) SendSignedTransaction(ctx context.Context, signedTx *types.Transaction) (string, error) {
 	if err := ws.client.SendTransaction(ctx, signedTx); err != nil {
 		return "", err
 	}

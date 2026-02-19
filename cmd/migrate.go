@@ -22,7 +22,7 @@ func migrateDatabase(app *internal.Application) error {
 			&entities.Asset{},
 			&entities.TradingPair{},
 			&entities.WalletAccount{},
-			&entities.EVMTransaction{},
+			&entities.EvmTransaction{},
 		}
 
 		zap.S().Debugw("starting migrations", zap.Int("count", len(mgModels)))

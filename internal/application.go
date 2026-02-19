@@ -21,7 +21,9 @@ type Application struct {
 
 	UserRepository          repositories.UserRepository
 	WalletAccountRepository repositories.WalletAccountRepository
-	WalletService           services.WalletService // access hdWallet with its service
+	TransactinRepository    repositories.EVMTransactionRepository
+
+	WalletService services.WalletService // access hdWallet and ethclient with its service
 
 	Redis     *redis.Client // add it later
 	MySqlGorm *gorm.DB
@@ -66,6 +68,7 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 func (app *Application) registerRepositories() error {
 	app.UserRepository = repository.NewUserRepository(app.MySqlGorm)
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
+	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	return nil
 }
 

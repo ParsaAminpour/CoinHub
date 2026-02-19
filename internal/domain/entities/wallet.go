@@ -19,13 +19,17 @@ const (
 
 // Wallet Account is an EOA wallet derrived from the central ledger private key for each user
 // The balance and assets associated to the this wallet account won't be recorded in DB and will directly to inquire onchain.
+// NOTE : the WalletAddressIndex is derived from
 type WalletAccount struct {
 	gorm.Model
 
-	UserID          uuid.UUID `gorm:"type:uuid;not null;uniqueIndex"` // Unique since User hasOne WalletAccount
-	AccountType     AccountType
-	WalletAddress   *string
-	Status          WalletAccountStatus
+	UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex"` // Unique since User hasOne WalletAccount
+	// last path segment: m/44'/60'/0'/0/<WalletAddressIndex>
+	WalletAddressIndex uint64 `gorm:"not null;uniqueIndex:uniq_address_index;index;->"`
+	WalletAddress      string `gorm:"size:42;not null;uniqueIndex:uniq_chain_address"`
+	AccountType        AccountType
+	Status             WalletAccountStatus
+
 	DepositsEnabled bool `gorm:"default:true;not null"`
 	StatusReason    *string
 	FrozenReason    *string
@@ -34,6 +38,7 @@ type WalletAccount struct {
 func NewWalletAccount(
 	userID uuid.UUID,
 	walletAddress string,
+	walletAddressIndex uint64,
 	accountType AccountType,
 	status WalletAccountStatus,
 	statusReason string,
@@ -43,7 +48,7 @@ func NewWalletAccount(
 	return WalletAccount{
 		UserID:          userID,
 		AccountType:     accountType,
-		WalletAddress:   &walletAddress,
+		WalletAddress:   walletAddress,
 		Status:          status,
 		StatusReason:    &statusReason,
 		FrozenReason:    &frozenStatus,

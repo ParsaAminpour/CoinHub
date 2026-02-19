@@ -1,7 +1,6 @@
 package http
 
 import (
-	"coinhub/docs"
 	"coinhub/internal"
 	"coinhub/internal/adapter/handler/http/schema"
 	"coinhub/internal/infrastructure/security"
@@ -42,7 +41,7 @@ func SetupRouter(app *internal.Application) error {
 		return err
 	}
 
-	docs.SwaggerInfo.BasePath = "/api/v1"
+	// docs.SwaggerInfo.BasePath = "/api/v1"
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
 
 	v1 := router.Group("/v1")
@@ -65,6 +64,9 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	if err := registerAuthRoutes(r, app); err != nil {
 		return err
 	}
+	if err := registerTransactionRoutes(r, app); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -78,9 +80,16 @@ func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 
 func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup := r.Group("auth")
-	authGroup.POST("/register", apiPostHandler(RegisterUser, app))
-	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsername, app))
-	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmail, app))
+	authGroup.POST("/register", apiPostHandler(RegisterUserHandler, app))
+	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsernameHandler, app))
+	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, app))
+	return nil
+}
+
+func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	authGroup := r.Group("transaction")
+	authGroup.Use(security.AuthMiddleware())
+	authGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, app))
 	return nil
 }
 
@@ -90,6 +99,7 @@ func registerValidators() error {
 		v.RegisterValidation("firstnamecheck", schema.FirstnameCheck)
 		v.RegisterValidation("lastnamecheck", schema.LastnameCheck)
 		v.RegisterValidation("emailcheck", schema.EmailCheck)
+		v.RegisterValidation("walletaddresscheck", schema.WalletAddressCheck)
 	}
 	return nil
 }

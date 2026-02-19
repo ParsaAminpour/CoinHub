@@ -13,10 +13,16 @@ const SPOT_MAX_DECIMALS int = 8
 const PERP_MAX_DECIMALS int = 6
 
 type AssetStatus string
+type AssetNetwork string
 
 const (
 	AssetStatusActive   AssetStatus = "active"
 	AssetStatusInactive AssetStatus = "inactive"
+)
+
+const (
+	TestnetAsset AssetNetwork = "testnet"
+	MainnetAsset AssetNetwork = "mainnet"
 )
 
 type Asset struct {
@@ -27,6 +33,8 @@ type Asset struct {
 	MaxSize             float64
 	NetworkAvailability AssetNetworkAvailability `gorm:"type:jsonb"`
 	Status              AssetStatus
+	AssetAddress        string       `json:"asset_address" gorm:"unique;index;not null"`
+	Network             AssetNetwork `json:"network"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

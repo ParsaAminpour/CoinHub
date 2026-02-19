@@ -26,7 +26,7 @@ import (
 // @Failure      400      {object}  helper.ErrorResponse          "Invalid request body"
 // @Failure      500      {object}  helper.ErrorResponse          "Internal server error"
 // @Router       /v1/auth/register [post]
-func RegisterUser(c *gin.Context, app *internal.Application) error {
+func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 	var req schema.RegisterUserRequest
 	responseHelper := helper.NewResponseHelper()
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -57,9 +57,11 @@ func RegisterUser(c *gin.Context, app *internal.Application) error {
 
 	responseHelper.SuccessStandard(c, schema.RegisterUserResponse{
 		ID:        user.ID,
+		Username:  *user.Username,
 		Firstname: user.UserProfile.Firstname,
 		Lastname:  user.UserProfile.Lastname,
 		Gmail:     *user.Gmail,
+		JWTToken:  jwtToken,
 	})
 	return nil
 }
@@ -76,7 +78,7 @@ func RegisterUser(c *gin.Context, app *internal.Application) error {
 // @Failure      401      {object}  helper.ErrorResponse                  "Invalid credentials"
 // @Failure      500      {object}  helper.ErrorResponse                  "Internal server error"
 // @Router       /v1/auth/login/username [post]
-func LoginUserWithUsername(c *gin.Context, app *internal.Application) error {
+func LoginUserWithUsernameHandler(c *gin.Context, app *internal.Application) error {
 	var req schema.LoginUserWithUsernameRequest
 	responseHelper := helper.NewResponseHelper()
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,11 +86,12 @@ func LoginUserWithUsername(c *gin.Context, app *internal.Application) error {
 		return err
 	}
 
-	user, err := app.UserRepository.GetUserByUsername(c, req.Username)
-	if err != nil {
+	var user entities.User
+	if err := app.UserRepository.GetUserByUsername(c, &user, req.Username); err != nil {
 		responseHelper.UnauthorizedStandard(c, err.Error())
 		return err
 	}
+
 	passwordVerification, err := services.VerifyUserPasswordHash(req.Password, *user.Password)
 	if err != nil {
 		responseHelper.InternalServerErrorStandard(c, helper.MsgInternalError)
@@ -125,7 +128,7 @@ func LoginUserWithUsername(c *gin.Context, app *internal.Application) error {
 // @Failure      401      {object}  helper.ErrorResponse         "Invalid credentials"
 // @Failure      500      {object}  helper.ErrorResponse         "Internal server error"
 // @Router       /v1/auth/login/gmail [post]
-func LoginUserWithGmail(c *gin.Context, app *internal.Application) error {
+func LoginUserWithGmailHandler(c *gin.Context, app *internal.Application) error {
 	var req schema.LoginWithGmailRequest
 	responseHelper := helper.NewResponseHelper()
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -133,11 +136,12 @@ func LoginUserWithGmail(c *gin.Context, app *internal.Application) error {
 		return err
 	}
 
-	user, err := app.UserRepository.GetUserByGmail(c, req.Gmail)
-	if err != nil {
+	var user entities.User
+	if err := app.UserRepository.GetUserByGmail(c, &user, req.Gmail); err != nil {
 		responseHelper.UnauthorizedStandard(c, err.Error())
 		return err
 	}
+
 	passwordVerification, err := services.VerifyUserPasswordHash(req.Password, *user.Password)
 	if err != nil {
 		responseHelper.InternalServerErrorStandard(c, helper.MsgInternalError)

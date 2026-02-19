@@ -18,14 +18,29 @@ func NewWalletRepository(db *gorm.DB) repositories.WalletAccountRepository {
 	return WalletAccountRepository{db: db}
 }
 
+// NextAddressIndex allocates a unique index from Postgres sequence.
+func (w WalletAccountRepository) NextAddressIndex() (uint64, error) {
+	var idx uint64
+	if err := w.db.Raw(`SELECT nextval('wallet_address_index_seq')`).Scan(&idx).Error; err != nil {
+		return 0, err
+	}
+	return idx, nil
+}
+
 func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletService services.WalletService, userID uuid.UUID) (string, error) {
-	generatedWalletAccount, err := walletService.GenerateWalletAddress(userID)
+	walletAddressIdx, err := w.NextAddressIndex()
 	if err != nil {
 		return "", err
 	}
+	generatedWalletAccount, err := walletService.GenerateWalletAddress(uint32(walletAddressIdx))
+	if err != nil {
+		return "", err
+	}
+
 	walletAccountEntity := entities.NewWalletAccount(
 		userID,
 		generatedWalletAccount.Address.String(),
+		walletAddressIdx,
 		entities.SpotAccount,
 		entities.ActiveWalletAccount,
 		"",
@@ -36,7 +51,7 @@ func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletServ
 	if err := w.db.WithContext(ctx).Create(&walletAccountEntity).Error; err != nil {
 		return "", err
 	}
-	return *walletAccountEntity.WalletAddress, nil
+	return walletAccountEntity.WalletAddress, nil
 }
 
 func (w WalletAccountRepository) UpdateWalletAccountStatus(ctx context.Context, userID uuid.UUID, newStatus entities.WalletAccountStatus, statusReason, frozenReason string) error {

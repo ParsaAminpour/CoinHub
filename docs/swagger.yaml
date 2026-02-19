@@ -70,6 +70,43 @@ definitions:
       username:
         type: string
     type: object
+  schema.WithdrawNativeRequest:
+    properties:
+      amount:
+        type: string
+      asset_owner_address:
+        type: string
+      calldata:
+        type: string
+      chain_id:
+        type: integer
+      destination_address:
+        type: string
+      gas_limit_unit:
+        type: integer
+      gas_price_wei:
+        type: string
+      token_address:
+        type: string
+      token_symbol:
+        type: string
+    required:
+    - amount
+    - asset_owner_address
+    - chain_id
+    - destination_address
+    - gas_limit_unit
+    - gas_price_wei
+    - token_address
+    - token_symbol
+    type: object
+  schema.WithdrawNativeResponse:
+    properties:
+      code:
+        type: integer
+      transaction_status:
+        type: string
+    type: object
 info:
   contact: {}
 paths:
@@ -171,4 +208,38 @@ paths:
       summary: Register a new user
       tags:
       - auth
+  /v1/transaction/withdraw:
+    post:
+      consumes:
+      - application/json
+      description: Handles asset withdrawal requests for native tokens.
+      parameters:
+      - description: WithdrawNativeRequest
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.WithdrawNativeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successful withdrawal
+          schema:
+            $ref: '#/definitions/schema.WithdrawNativeResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "404":
+          description: User or wallet not found
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Withdraw asset
+      tags:
+      - transaction
 swagger: "2.0"

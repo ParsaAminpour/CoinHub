@@ -164,6 +164,58 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/transaction/withdraw": {
+            "post": {
+                "description": "Handles asset withdrawal requests for native tokens.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transaction"
+                ],
+                "summary": "Withdraw asset",
+                "parameters": [
+                    {
+                        "description": "WithdrawNativeRequest",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/schema.WithdrawNativeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful withdrawal",
+                        "schema": {
+                            "$ref": "#/definitions/schema.WithdrawNativeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User or wallet not found",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -269,6 +321,59 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "schema.WithdrawNativeRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "asset_owner_address",
+                "chain_id",
+                "destination_address",
+                "gas_limit_unit",
+                "gas_price_wei",
+                "token_address",
+                "token_symbol"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "string"
+                },
+                "asset_owner_address": {
+                    "type": "string"
+                },
+                "calldata": {
+                    "type": "string"
+                },
+                "chain_id": {
+                    "type": "integer"
+                },
+                "destination_address": {
+                    "type": "string"
+                },
+                "gas_limit_unit": {
+                    "type": "integer"
+                },
+                "gas_price_wei": {
+                    "type": "string"
+                },
+                "token_address": {
+                    "type": "string"
+                },
+                "token_symbol": {
+                    "type": "string"
+                }
+            }
+        },
+        "schema.WithdrawNativeResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "transaction_status": {
                     "type": "string"
                 }
             }
