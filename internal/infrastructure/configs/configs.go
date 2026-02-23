@@ -55,6 +55,9 @@ type Configuration struct {
 		ETHClientTestnet string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
 		ETHClientMainnet string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
 		NetworkStatus    string `env:"NETWORK_STATUS" env-default:"TESTNET"`
+
+		WSClientEthereumMainnet string `env:"WS_CLIENT_ETHEREUM_MAINNET" env-required:"true"`
+		WSClientEthereumTestnet string `env:"WS_CLIENT_ETHEREUM_TESTNET" env-required:"true"`
 	}
 
 	Lang struct {
@@ -79,6 +82,11 @@ type Configuration struct {
 		}
 	}
 
+	Service struct {
+		QueueDB int `env:"SERVICE_QUEUE_DB" env-default:"7"`
+		CacheDB int `env:"SERVICE_CACHE_DB" env-default:"4"`
+	}
+
 	// Mail struct {
 	// 	SMTPHost     string `env:"MAIL_SMTP_HOST" default:"smtp.gmail.com"`
 	// 	SMTPPort     int    `env:"MAIL_SMTP_PORT" default:"587"`
@@ -86,11 +94,6 @@ type Configuration struct {
 	// 	SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
 	// 	FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
 	// 	FromName     string `env:"MAIL_FROM_NAME" default:"All In Hype"`
-	// }
-
-	// Service struct {
-	// 	QueueDB int `env:"SERVICE_QUEUE_DB" env-default:"7"`
-	// 	CacheDB int `env:"SERVICE_CACHE_DB" env-default:"4"`
 	// }
 
 	// Firebase struct {

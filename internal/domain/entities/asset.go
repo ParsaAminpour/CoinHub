@@ -34,7 +34,7 @@ type Asset struct {
 	NetworkAvailability AssetNetworkAvailability `gorm:"type:jsonb"`
 	Status              AssetStatus
 	AssetAddress        string       `json:"asset_address" gorm:"unique;index;not null"`
-	Network             AssetNetwork `json:"network"`
+	Network             AssetNetwork `json:"network" gorm:"default:testnet"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

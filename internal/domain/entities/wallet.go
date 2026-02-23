@@ -20,6 +20,18 @@ const (
 // Wallet Account is an EOA wallet derrived from the central ledger private key for each user
 // The balance and assets associated to the this wallet account won't be recorded in DB and will directly to inquire onchain.
 // NOTE : the WalletAddressIndex is derived from
+// -- 1) Create sequence if missing
+// CREATE SEQUENCE IF NOT EXISTS wallet_address_index_seq;
+
+// -- 2) Attach it as the default for the column
+// ALTER TABLE wallet_accounts
+//   ALTER COLUMN wallet_address_index SET DEFAULT nextval('wallet_address_index_seq');
+
+// -- 3) Set sequence value to be above existing max (avoid collisions)
+// SELECT setval('wallet_address_index_seq',
+//
+//	COALESCE((SELECT MAX(wallet_address_index) FROM wallet_accounts), 0) + 1,
+//	false);
 type WalletAccount struct {
 	gorm.Model
 

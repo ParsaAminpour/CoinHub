@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -22,6 +23,7 @@ func NewWalletRepository(db *gorm.DB) repositories.WalletAccountRepository {
 func (w WalletAccountRepository) NextAddressIndex() (uint64, error) {
 	var idx uint64
 	if err := w.db.Raw(`SELECT nextval('wallet_address_index_seq')`).Scan(&idx).Error; err != nil {
+		zap.S().Errorw("::Failed to get next wallet address index from Postgres sequence", "error", err)
 		return 0, err
 	}
 	return idx, nil
@@ -32,6 +34,8 @@ func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletServ
 	if err != nil {
 		return "", err
 	}
+	zap.S().Infow("Allocated wallet address index", "index", walletAddressIdx)
+
 	generatedWalletAccount, err := walletService.GenerateWalletAddress(uint32(walletAddressIdx))
 	if err != nil {
 		return "", err

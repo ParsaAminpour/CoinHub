@@ -25,6 +25,7 @@ func (r *RegisterUserUsecases) Register(ctx context.Context, walletService servi
 	if err := r.userRepo.Create(ctx, user); err != nil {
 		return err
 	}
+	zap.S().Infow("Creating user", "user_id", user.ID)
 	walletAddress, err := r.walletRepo.CreateNewWallet(ctx, walletService, user.ID)
 	if err != nil {
 		return err

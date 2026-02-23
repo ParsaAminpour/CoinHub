@@ -28,15 +28,24 @@ func (r *EVMTransactionRepository) CreateTransaction(ctx context.Context, evmTx 
 	return result.Error
 }
 
-func (r *EVMTransactionRepository) GetTransactionByHash(ctx context.Context, hash string) error {
+func (r *EVMTransactionRepository) GetTransactionByHash(ctx context.Context, evmTx *entities.EvmTransaction, hash string) error {
 	if hash == "" {
 		return gorm.ErrRecordNotFound
 	}
 
-	var evmTx entities.EvmTransaction
 	result := r.db.WithContext(ctx).Where("hash = ?", hash).First(&evmTx)
 	if result.Error != nil {
 		return result.Error
+	}
+	return nil
+}
+
+func (r *EVMTransactionRepository) UpdateTransactionStatus(ctx context.Context, trxHash string, newStatus entities.TransactionStatus) error {
+	if err := r.db.WithContext(ctx).
+		Model(&entities.EvmTransaction{}).
+		Where("hash = ?", trxHash).
+		Update("status", newStatus).Error; err != nil {
+		return err
 	}
 	return nil
 }

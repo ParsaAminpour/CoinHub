@@ -41,6 +41,8 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 		responseHelper.InternalServerErrorStandard(c, err.Error())
 		return err
 	}
+	zap.S().Infow("RegisterUser", "username", req.Username, "hashed password", hashedUserPassword)
+
 	user := entities.NewUser(req.Firstname, req.Lastname, req.Username, req.Gmail, hashedUserPassword, entities.GmailVerificationNotRegistered, entities.StatusActive)
 	if err := registerUsecases.Register(c, app.WalletService, user); err != nil {
 		responseHelper.InternalServerErrorStandard(c, err.Error())

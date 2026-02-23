@@ -2,6 +2,7 @@ package entities
 
 import (
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -38,6 +39,9 @@ type EvmTransaction struct {
 	Type        TransactionType   `gorm:"type:varchar(16);not null"`
 	Status      TransactionStatus `gorm:"type:varchar(16);not null;default:'PENDING'"`
 	Note        *string           `gorm:"type:text"` // Make Note an optional field
+	V           *string           `gorm:"type:varchar(66)"`
+	R           *string           `gorm:"type:varchar(66)"`
+	S           *string           `gorm:"type:varchar(66)"`
 }
 
 func NewEVMTransaction(
@@ -66,4 +70,9 @@ func NewEVMTransaction(
 		Status:      status,
 		Note:        &note,
 	}
+}
+
+func (t *EvmTransaction) AfterUpdate(tx *gorm.DB) (err error) {
+	zap.S().Info("test after update hook")
+	return
 }

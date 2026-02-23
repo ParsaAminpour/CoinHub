@@ -81,7 +81,7 @@ func WithdrawHandler(c *gin.Context, app *internal.Application) error {
 	gasPriceWeiBigInt, _ := new(big.Int).SetString(req.GasPriceWei, 10)
 
 	// store a pending transactino to the database
-	txHash, err := walletUsecases.WithdrawAsset(c, user.ID, app.ETHClient, &account, req.DestinationAddress, amountInWeiBigint, uint64(req.GasLimitUnit), gasPriceWeiBigInt, uint32(req.ChainId), req.Calldata)
+	txHash, err := walletUsecases.WithdrawAsset(c, user.ID, app.AsynqClient, app.ETHClient, &account, req.DestinationAddress, amountInWeiBigint, uint64(req.GasLimitUnit), gasPriceWeiBigInt, uint32(req.ChainId), req.Calldata)
 	if err != nil {
 		responseHelper.InternalServerErrorStandard(c, err.Error())
 		return err

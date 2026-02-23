@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/hibiken/asynq"
+	"github.com/hibiken/asynqmon"
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
@@ -43,6 +45,17 @@ func SetupRouter(app *internal.Application) error {
 
 	// docs.SwaggerInfo.BasePath = "/api/v1"
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+	h := asynqmon.New(asynqmon.Options{
+		RootPath: "/monitoring",
+		RedisConnOpt: asynq.RedisClientOpt{
+			Addr:     app.Configs.RedisAddress(),
+			Password: app.Configs.Storage.Redis.Password,
+			DB:       app.Configs.Service.QueueDB,
+		},
+	})
+
+	router.GET("/monitoring", gin.WrapH(h))
+	router.GET("/monitoring/*any", gin.WrapH(h))
 
 	v1 := router.Group("/v1")
 	if err := setupRoutes(v1, app); err != nil {
@@ -51,13 +64,15 @@ func SetupRouter(app *internal.Application) error {
 	}
 
 	zap.S().Infow("HTTP server is running", "address", "localhost:8082")
-	if err := router.Run(":8082"); err != nil {
+	if err := router.Run(":8083"); err != nil {
 		return err
 	}
 	return nil
 }
 
 func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	r.GET("/ping", apiGetHandler(GetHome, app)) // TODO : remove this
+
 	if err := registerUserRoutes(r, app); err != nil {
 		return err
 	}
@@ -74,7 +89,6 @@ func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	userGroup := r.Group("/user")
 	userGroup.Use(security.AuthMiddleware())
 
-	userGroup.GET("/ping", apiGetHandler(GetHome, app))
 	return nil
 }
 

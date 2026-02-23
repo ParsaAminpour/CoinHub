@@ -1,6 +1,7 @@
 package wallet_usecases
 
 import (
+	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/domain/services"
@@ -11,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
 
@@ -40,6 +42,7 @@ func (
 ) WithdrawAsset(
 	ctx context.Context,
 	callerUserID uuid.UUID,
+	asynqClient *asynq.Client,
 	client *ethclient.Client,
 	fromAccount *accounts.Account,
 	toPk string,
@@ -99,7 +102,7 @@ func (
 		callerUserID,
 		&trxHash,
 		int(chainId),
-		0, // TODO : set proper value here
+		int(fromAccountNonce), // TODO : set proper value here
 		fromAccount.Address.Hex(),
 		&toPk,
 		int(gasPriceWei.Int64()),
@@ -111,7 +114,10 @@ func (
 	if err := wu.transactionRepo.CreateTransaction(ctx, &transaction); err != nil {
 		return "", err
 	}
-	zap.S().Infow("pending transaction recorded in DB", "txHash", trxHash)
+	if err := tasks.EnqueuPendingTransactions(ctx, asynqClient, trxHash, int(chainId)); err != nil {
+		return "", err
+	}
 
+	zap.S().Infow("pending transaction recorded in DB", "txHash", trxHash)
 	return trxHash, nil
 }

@@ -3,6 +3,8 @@
 
 INSERT INTO users (
     id,
+    username,
+    password,
     gmail,
     gmail_verification_status,
     gmail_verified_at,
@@ -13,6 +15,8 @@ INSERT INTO users (
     updated_at
 ) VALUES (
     '00000000-0000-0000-0000-000000000001'::uuid,
+    'system_user',
+    'randompassowrdgeneratedbyargon',
     'system@coinhub.com',
     'verified',
     NOW(),

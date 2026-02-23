@@ -7,15 +7,19 @@ import (
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/database"
 	"context"
+	"flag"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/websocket"
+	"github.com/hibiken/asynq"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
+// TODO : Add connections graceful shutdown
 type Application struct {
 	Configs *configs.Configuration
 
@@ -25,12 +29,18 @@ type Application struct {
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
 
-	Redis     *redis.Client // add it later
-	MySqlGorm *gorm.DB
+	RedisClient *redis.Client // add it later
+	MySqlGorm   *gorm.DB
 
 	ETHClient *ethclient.Client
 
 	hdWallet *hdwallet.Wallet // private - only accessible through WalletService
+
+	AsynqClient    *asynq.Client
+	AsynqInspector *asynq.Inspector
+	AsynqServer    *asynq.Server
+
+	WsClient *websocket.Conn
 }
 
 func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
@@ -46,7 +56,7 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 		zap.S().Fatalw("error in registering DB: %s", err.Error())
 	}
 
-	if err := app.registerRedis(); err != nil {
+	if err := app.registerRedis(ctx); err != nil {
 		zap.S().Fatalw("error in registering redis: %s", err.Error())
 	}
 
@@ -62,7 +72,29 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 		zap.S().Fatalw("error in registering services: %s", err.Error())
 	}
 
+	if err := app.registerAsynqClient(); err != nil {
+		zap.S().Fatalw("error in registering asynq client: %s", err.Error())
+	}
+
+	if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumTestnet, configs.App.NetworkStatus); err != nil {
+		zap.S().Fatalw("error in registering websocket client: %s", err.Error())
+	}
+
 	return app
+}
+
+func (app *Application) registerAsynqClient() error {
+	app.AsynqClient = asynq.NewClient(asynq.RedisClientOpt{
+		Addr:     app.Configs.RedisAddress(),
+		Password: app.Configs.Storage.Redis.Password,
+		DB:       app.Configs.Service.QueueDB,
+	})
+	app.AsynqInspector = asynq.NewInspector(asynq.RedisClientOpt{
+		Addr:     app.Configs.RedisAddress(),
+		Password: app.Configs.Storage.Redis.Password,
+		DB:       app.Configs.Service.QueueDB,
+	})
+	return nil
 }
 
 func (app *Application) registerRepositories() error {
@@ -111,6 +143,37 @@ func (app *Application) registerServices() error {
 	return nil
 }
 
-func (app *Application) registerRedis() error {
+func (app *Application) registerRedis(ctx context.Context) error {
+
+	client := redis.NewClient(&redis.Options{
+		Addr:     app.Configs.RedisAddress(),
+		Password: app.Configs.Storage.Redis.Password,
+		DB:       app.Configs.Service.CacheDB,
+	})
+
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		return err
+	}
+
+	app.RedisClient = client
+	return nil
+}
+
+func (app *Application) registerWebsocketClient(ctx context.Context, clientUrl string, network string) error {
+	addr := flag.String("wsClientAddr", clientUrl, fmt.Sprintf("Network"))
+	zap.S().Infow("Registering websocket client",
+		"clientUrl", *addr,
+		"network", network,
+	)
+	// u := url.URL{Scheme: "ws", Host: *addr, Path: "/echo"}
+	c, _, err := websocket.DefaultDialer.Dial(*addr, nil)
+	if err != nil {
+		return err
+	}
+	zap.S().Infow("Websocket client connected successfully",
+		"url", *addr,
+		"network", network,
+	)
+	app.WsClient = c
 	return nil
 }
