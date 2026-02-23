@@ -35,7 +35,7 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 	}
 	zap.S().Infow("RegisterUser request body validated successfully")
 
-	registerUsecases := user_usecases.NewRegisterUserUsecases(app.UserRepository, app.WalletAccountRepository)
+	registerUsecases := user_usecases.NewRegisterUserUsecases(app.TxManager)
 	hashedUserPassword, err := services.GetUserPasswordHash(req.Password)
 	if err != nil {
 		responseHelper.InternalServerErrorStandard(c, err.Error())

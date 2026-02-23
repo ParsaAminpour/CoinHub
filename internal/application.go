@@ -26,6 +26,7 @@ type Application struct {
 	UserRepository          repositories.UserRepository
 	WalletAccountRepository repositories.WalletAccountRepository
 	TransactinRepository    repositories.EVMTransactionRepository
+	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
 
@@ -101,6 +102,7 @@ func (app *Application) registerRepositories() error {
 	app.UserRepository = repository.NewUserRepository(app.MySqlGorm)
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
+	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	return nil
 }
 

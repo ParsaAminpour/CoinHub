@@ -9,7 +9,7 @@ import (
 )
 
 type WalletAccountRepository interface {
-	CreateNewWallet(ctx context.Context, walletService services.WalletService, userID uuid.UUID) (string, error)
+	CreateNewWallet(ctx context.Context, walletService services.WalletService, userID uuid.UUID) error
 	UpdateWalletAccountStatus(ctx context.Context, userID uuid.UUID, newStatus entities.WalletAccountStatus, statusReason, frozenReason string) error
 	GetByUserID(ctx context.Context, userID uuid.UUID) (*entities.WalletAccount, error)
 }

@@ -11,27 +11,30 @@ import (
 
 // Contains What actions can users perform
 type RegisterUserUsecases struct {
-	userRepo   repositories.UserRepository
-	walletRepo repositories.WalletAccountRepository
+	txManager repositories.TxManager
 }
 
 // repo is injected from entities:repositories
-func NewRegisterUserUsecases(userRepo repositories.UserRepository, walletRepo repositories.WalletAccountRepository) RegisterUserUsecases {
-	return RegisterUserUsecases{userRepo: userRepo, walletRepo: walletRepo}
+func NewRegisterUserUsecases(txManager repositories.TxManager) RegisterUserUsecases {
+	return RegisterUserUsecases{txManager: txManager}
 }
 
 // TODO : make this atomic, but how with this architecture??
 func (r *RegisterUserUsecases) Register(ctx context.Context, walletService services.WalletService, user *entities.User) error {
-	if err := r.userRepo.Create(ctx, user); err != nil {
-		return err
-	}
-	zap.S().Infow("Creating user", "user_id", user.ID)
-	walletAddress, err := r.walletRepo.CreateNewWallet(ctx, walletService, user.ID)
-	if err != nil {
-		return err
-	}
-
-	zap.S().Infow("user created", "user", user.ID)
-	zap.S().Infow("wallet generated for user", "walletAddress", walletAddress)
-	return nil
+	return r.txManager.WithinTransaction(ctx, func(ctx context.Context, tx repositories.Tx) error {
+		if err := tx.Users().Create(ctx, user); err != nil {
+			zap.S().Errorw("Failed to create user during registration", "error", err, "username", user.Username)
+			return err
+		}
+		if err := tx.Wallets().CreateNewWallet(ctx, walletService, user.ID); err != nil {
+			zap.S().Errorw("Failed to create wallet during registration", "error", err, "user_id", user.ID, "username", user.Username)
+			return err
+		}
+		zap.S().Infow("User registration transaction steps completed",
+			"user_id", user.ID,
+			"username", user.Username,
+			"wallet_created", true,
+		)
+		return nil
+	})
 }

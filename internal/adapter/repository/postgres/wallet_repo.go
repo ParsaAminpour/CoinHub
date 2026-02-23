@@ -29,16 +29,16 @@ func (w WalletAccountRepository) NextAddressIndex() (uint64, error) {
 	return idx, nil
 }
 
-func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletService services.WalletService, userID uuid.UUID) (string, error) {
+func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletService services.WalletService, userID uuid.UUID) error {
 	walletAddressIdx, err := w.NextAddressIndex()
 	if err != nil {
-		return "", err
+		return err
 	}
 	zap.S().Infow("Allocated wallet address index", "index", walletAddressIdx)
 
 	generatedWalletAccount, err := walletService.GenerateWalletAddress(uint32(walletAddressIdx))
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	walletAccountEntity := entities.NewWalletAccount(
@@ -53,9 +53,9 @@ func (w WalletAccountRepository) CreateNewWallet(ctx context.Context, walletServ
 	)
 
 	if err := w.db.WithContext(ctx).Create(&walletAccountEntity).Error; err != nil {
-		return "", err
+		return err
 	}
-	return walletAccountEntity.WalletAddress, nil
+	return nil
 }
 
 func (w WalletAccountRepository) UpdateWalletAccountStatus(ctx context.Context, userID uuid.UUID, newStatus entities.WalletAccountStatus, statusReason, frozenReason string) error {
