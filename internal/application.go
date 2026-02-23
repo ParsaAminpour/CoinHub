@@ -16,6 +16,7 @@ import (
 	"github.com/hibiken/asynq"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"go.uber.org/zap"
+	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
 
@@ -30,6 +31,7 @@ type Application struct {
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
 
+	MailDialer  *gomail.Dialer
 	RedisClient *redis.Client // add it later
 	MySqlGorm   *gorm.DB
 
@@ -54,31 +56,35 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	zap.S().Info("HD wallet initialized and secured")
 
 	if err := app.registerMySqlGorm(); err != nil {
-		zap.S().Fatalw("error in registering DB: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering DB: %s", err.Error())
 	}
 
 	if err := app.registerRedis(ctx); err != nil {
-		zap.S().Fatalw("error in registering redis: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering redis: %s", err.Error())
 	}
 
 	if err := app.registerRepositories(); err != nil {
-		zap.S().Fatalw("error in registering repositories: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering repositories: %s", err.Error())
 	}
 
 	if err := app.registerETHClient(); err != nil {
-		zap.S().Fatalw("error in registering eth client: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering eth client: %s", err.Error())
 	}
 
 	if err := app.registerServices(); err != nil {
-		zap.S().Fatalw("error in registering services: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering services: %s", err.Error())
 	}
 
 	if err := app.registerAsynqClient(); err != nil {
-		zap.S().Fatalw("error in registering asynq client: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering asynq client: %s", err.Error())
 	}
 
 	if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumTestnet, configs.App.NetworkStatus); err != nil {
-		zap.S().Fatalw("error in registering websocket client: %s", err.Error())
+		zap.S().Fatalw("❌ error in registering websocket client: %s", err.Error())
+	}
+
+	if err := app.registerMailDialer(ctx); err != nil {
+		zap.S().Fatalw("❌ error in registering mail dialer: %s", err.Error())
 	}
 
 	return app
@@ -95,6 +101,7 @@ func (app *Application) registerAsynqClient() error {
 		Password: app.Configs.Storage.Redis.Password,
 		DB:       app.Configs.Service.QueueDB,
 	})
+	zap.S().Infow("Asynq client and inspector registered ✅")
 	return nil
 }
 
@@ -103,6 +110,7 @@ func (app *Application) registerRepositories() error {
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
+	zap.S().Infow("Repositories registered ✅")
 	return nil
 }
 
@@ -112,6 +120,7 @@ func (app *Application) registerMySqlGorm() error {
 		return fmt.Errorf("%s", err.Error())
 	}
 	app.MySqlGorm = db
+	zap.S().Infow("MySQL GORM database registered ✅")
 	return nil
 }
 
@@ -121,6 +130,7 @@ func (app *Application) registerHDWallet() error {
 		return err
 	}
 	app.hdWallet = wallet
+	zap.S().Infow("HDWallet registered ✅")
 	return nil
 }
 
@@ -136,6 +146,7 @@ func (app *Application) registerETHClient() error {
 		return err
 	}
 	app.ETHClient = client
+	zap.S().Infow("ETHClient registered ✅")
 	return nil
 }
 
@@ -156,26 +167,31 @@ func (app *Application) registerRedis(ctx context.Context) error {
 	if _, err := client.Ping(ctx).Result(); err != nil {
 		return err
 	}
-
 	app.RedisClient = client
+	zap.S().Infow("Redis client registered ✅", "address", app.Configs.RedisAddress())
 	return nil
 }
 
 func (app *Application) registerWebsocketClient(ctx context.Context, clientUrl string, network string) error {
 	addr := flag.String("wsClientAddr", clientUrl, fmt.Sprintf("Network"))
-	zap.S().Infow("Registering websocket client",
-		"clientUrl", *addr,
-		"network", network,
-	)
 	// u := url.URL{Scheme: "ws", Host: *addr, Path: "/echo"}
 	c, _, err := websocket.DefaultDialer.Dial(*addr, nil)
 	if err != nil {
 		return err
 	}
-	zap.S().Infow("Websocket client connected successfully",
-		"url", *addr,
-		"network", network,
-	)
 	app.WsClient = c
+	zap.S().Infow("Websocket client registered ✅")
+	return nil
+}
+
+func (app *Application) registerMailDialer(ctx context.Context) error {
+	app.MailDialer = gomail.NewDialer(
+		app.Configs.Mail.SMTPHost,
+		app.Configs.Mail.SMTPPort,
+		app.Configs.Mail.SMTPUsername,
+		app.Configs.Mail.SMTPPassword,
+	)
+	zap.S().Infow("Mail dialer config", "host", app.Configs.Mail.SMTPHost, "port", app.Configs.Mail.SMTPPort, "username", app.Configs.Mail.SMTPUsername)
+	zap.S().Info("Mail dialer registered✅")
 	return nil
 }

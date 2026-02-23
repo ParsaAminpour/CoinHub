@@ -43,7 +43,6 @@ type RegisterUserResponse struct {
 	Firstname string    `json:"firstname"`
 	Lastname  string    `json:"lastname"`
 	Gmail     string    `json:"gmail"`
-	JWTToken  string    `json:"jwt_token"`
 }
 
 type LoginUserWithUsernameRequest struct {
@@ -57,6 +56,18 @@ type LoginWithGmailRequest struct {
 }
 
 type LoginUserResponse struct {
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	JWTToken string `json:"jwt_token"`
+}
+
+type GmailVerificationCodeRequest struct {
+	Gmail            string `json:"gmail"`
+	Username         string `json:"username"`
+	VerificationCode string `json:"code"`
+}
+
+type GmailVerificationCodeResponse struct {
 	Code     int    `json:"code"`
 	Message  string `json:"message"`
 	JWTToken string `json:"jwt_token"`

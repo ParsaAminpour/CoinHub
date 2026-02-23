@@ -21,7 +21,8 @@ func NewWorker(ctx context.Context, conf configs.Configuration) *asynq.Server {
 			Concurrency:    10,
 			StrictPriority: true,
 			Queues: map[string]int{
-				"transaction": 10,
+				"transaction": 5,
+				"email":       5,
 			},
 			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
 				sentry.ConfigureScope(func(scope *sentry.Scope) {
@@ -35,12 +36,14 @@ func NewWorker(ctx context.Context, conf configs.Configuration) *asynq.Server {
 				}
 			}),
 		})
-
 	return server
 }
 
 func RegisterWorkerHandler(mux *asynq.ServeMux, app *internal.Application) {
 	mux.HandleFunc(tasks.EvmTransactionUpdateStatusV1, func(ctx context.Context, task *asynq.Task) error {
 		return tasks.HandleTransactionStatus(ctx, task, app.MySqlGorm, app.AsynqClient, app.ETHClient, &app.TransactinRepository)
+	})
+	mux.HandleFunc(tasks.UserUpdateEmailVerificaitonV1, func(ctx context.Context, task *asynq.Task) error {
+		return tasks.HandleEmailVerificationCodeSendOp(ctx, task, app.RedisClient, app.MailDialer)
 	})
 }

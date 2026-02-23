@@ -87,14 +87,14 @@ type Configuration struct {
 		CacheDB int `env:"SERVICE_CACHE_DB" env-default:"4"`
 	}
 
-	// Mail struct {
-	// 	SMTPHost     string `env:"MAIL_SMTP_HOST" default:"smtp.gmail.com"`
-	// 	SMTPPort     int    `env:"MAIL_SMTP_PORT" default:"587"`
-	// 	SMTPUsername string `env:"MAIL_SMTP_USERNAME" env-required:"true"`
-	// 	SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
-	// 	FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
-	// 	FromName     string `env:"MAIL_FROM_NAME" default:"All In Hype"`
-	// }
+	Mail struct {
+		SMTPHost     string `env:"MAIL_SMTP_HOST" default:"smtp.gmail.com"`
+		SMTPPort     int    `env:"MAIL_SMTP_PORT" default:"587"`
+		SMTPUsername string `env:"MAIL_SMTP_USERNAME" env-required:"true"`
+		SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
+		FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
+		FromName     string `env:"MAIL_FROM_NAME" default:"Coinhub"`
+	}
 
 	// Firebase struct {
 	// 	ServiceAccountJSON string `env:"FIREBASE_SERVICE_ACCOUNT_JSON"`

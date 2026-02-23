@@ -4,4 +4,6 @@ package tasks
 
 const (
 	EvmTransactionUpdateStatusV1 = "transaction.evmtransaction.update.v1"
+
+	UserUpdateEmailVerificaitonV1 = "user.email.update.v1"
 )
