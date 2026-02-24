@@ -136,31 +136,10 @@ func VerifyGmailVerificationCode(c *gin.Context, app *internal.Application) erro
 		return fmt.Errorf("username and gmail do not match")
 	}
 
-	ttl, err := app.AuthGmailCache.GetGmailVerificationCodeTimeLeft(c, app.RedisClient, req.Gmail, req.Username)
-	if err != nil {
-		zap.S().Errorw("failed to get gmail verification code TTL", "error", err, "gmail", req.Gmail, "username", req.Username)
-		responseHelper.InternalServerError(c, "failed to check verification code TTL")
-		return err
-	}
-	if ttl.Seconds() < 0 {
-		responseHelper.ErrorStandard(c, http.StatusTooEarly, "Verification code has expired. Please resend the code to get new verification code.")
-		return fmt.Errorf("verification code for this user is still alive")
-	}
-
-	cachedCode, err := app.AuthGmailCache.GetGmailVerificationCode(c, app.RedisClient, req.Gmail, req.Username)
-	if err != nil {
-		responseHelper.UnauthorizedStandard(c, "invalid or expired verification code")
-		return err
-	}
-
-	if cachedCode != req.VerificationCode {
-		responseHelper.UnauthorizedStandard(c, "invalid verification code")
-		return fmt.Errorf("invalid verification code")
-	}
-
-	if err := app.UserRepository.UpdateGmailVerificationStatus(c, *user.Gmail, entities.GmailVerificationStatusVerified); err != nil {
-		responseHelper.InternalServerError(c, "failed to update gmail verification status")
-		zap.S().Errorw("failed to update gmail verification status", "err", err, "userID", user.ID)
+	verifyGmailUsecases := user_usecases.NewVerifyGmailUsecases(app.UserRepository)
+	if err := verifyGmailUsecases.LabelGmailVerificationStatus(c, app.RedisClient, app.AuthGmailCache, app.UserRepository, req.Gmail, req.Username, req.VerificationCode, entities.GmailVerificationStatusVerified); err != nil {
+		zap.S().Errorw("failed to verify gmail verification code", "error", err.Error())
+		responseHelper.UnauthorizedStandard(c, err.Error())
 		return err
 	}
 
