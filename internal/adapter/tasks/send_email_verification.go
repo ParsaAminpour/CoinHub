@@ -50,8 +50,8 @@ func EnqueueEmailVerificationCodeTask(ctx context.Context, asynqClient *asynq.Cl
 		asynq.Queue("email"),
 		asynq.MaxRetry(1),
 		asynq.Timeout(60*time.Second),
-		asynq.Retention(1*time.Hour),   // how long to keep the task in the queue
-		asynq.ProcessIn(1*time.Second), // how long to wait before processing the task
+		asynq.Retention(1*time.Hour), // how long to keep the task in the queue
+		// asynq.ProcessIn(1*time.Second), // how long to wait before processing the task
 	)
 	if err != nil {
 		return err
@@ -60,7 +60,7 @@ func EnqueueEmailVerificationCodeTask(ctx context.Context, asynqClient *asynq.Cl
 	return nil
 }
 
-func HandleEmailVerificationCodeSendOp(ctx context.Context, t *asynq.Task, redisClient *redis.Client, mailDialer *gomail.Dialer) error {
+func HandleEmailVerificationCodeSendOp(ctx context.Context, t *asynq.Task, redisClient *redis.Client, mailDialer *gomail.Dialer, authGmailCache *cache.AuthGmailCache) error {
 	var emailVerificationPayload EmailVerificationPayload
 	if err := json.Unmarshal(t.Payload(), &emailVerificationPayload); err != nil {
 		return err
@@ -89,7 +89,6 @@ func HandleEmailVerificationCodeSendOp(ctx context.Context, t *asynq.Task, redis
 		return err
 	}
 
-	authGmailCache := cache.NewAuthGmailCache(ctx, redisClient, EMAIL_VERIFICATION_CODE_LIFETIME_DURATION)
 	if err := authGmailCache.SetGmailVerificationCode(
 		ctx,
 		redisClient,

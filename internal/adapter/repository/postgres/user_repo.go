@@ -31,8 +31,20 @@ func (r *UserRepository) Delete(ctx context.Context, userId uuid.UUID) error {
 	return nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, userId uuid.UUID) error {
-	// Implement here...
+func (r *UserRepository) UpdateGmailVerificationStatus(ctx context.Context, gmail string, gmailVerificationStatus entities.GmailVerificationStatus) error {
+	var isVerified bool
+	if gmailVerificationStatus == entities.GmailVerificationStatusVerified {
+		isVerified = true
+	} else {
+		isVerified = false
+	}
+	if err := r.db.WithContext(ctx).
+		Model(&entities.User{}).
+		Where("gmail = ? ", gmail).
+		Update("gmail_verification_status", gmailVerificationStatus).
+		Update("is_verified", isVerified).Error; err != nil {
+		return err
+	}
 	return nil
 }
 

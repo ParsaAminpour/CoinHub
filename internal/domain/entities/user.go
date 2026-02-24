@@ -17,7 +17,6 @@ const (
 type GmailVerificationStatus string
 
 const (
-	GmailVerificationNotRegistered  GmailVerificationStatus = "not_registered"
 	GmailVerificationStatusPending  GmailVerificationStatus = "pending"
 	GmailVerificationStatusVerified GmailVerificationStatus = "verified"
 )

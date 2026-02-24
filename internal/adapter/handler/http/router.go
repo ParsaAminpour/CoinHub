@@ -97,6 +97,8 @@ func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup.POST("/register", apiPostHandler(RegisterUserHandler, app))
 	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsernameHandler, app))
 	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, app))
+	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, app))
+	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, app))
 	return nil
 }
 

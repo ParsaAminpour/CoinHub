@@ -64,11 +64,21 @@ type LoginUserResponse struct {
 type GmailVerificationCodeRequest struct {
 	Gmail            string `json:"gmail"`
 	Username         string `json:"username"`
-	VerificationCode string `json:"code"`
+	VerificationCode string `json:"verification_code"`
 }
 
 type GmailVerificationCodeResponse struct {
 	Code     int    `json:"code"`
 	Message  string `json:"message"`
 	JWTToken string `json:"jwt_token"`
+}
+
+type GmailVerificationCodeResendRequest struct {
+	Gmail    string `json:"gmail"`
+	Username string `json:"username"`
+}
+
+type GmailVerificationCodeResendResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }

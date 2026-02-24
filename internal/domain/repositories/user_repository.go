@@ -10,7 +10,7 @@ import (
 type UserRepository interface {
 	Create(ctx context.Context, user *entities.User) error
 	Delete(ctx context.Context, userId uuid.UUID) error
-	Update(ctx context.Context, userId uuid.UUID) error
+	UpdateGmailVerificationStatus(ctx context.Context, gmail string, gmailVerificationStatus entities.GmailVerificationStatus) error
 	GetUserByID(ctx context.Context, user *entities.User, userId uuid.UUID) error
 	GetUserByUsername(ctx context.Context, user *entities.User, username string) error
 	GetUserByGmail(ctx context.Context, user *entities.User, gmail string) error

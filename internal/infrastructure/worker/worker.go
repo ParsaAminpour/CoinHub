@@ -44,6 +44,6 @@ func RegisterWorkerHandler(mux *asynq.ServeMux, app *internal.Application) {
 		return tasks.HandleTransactionStatus(ctx, task, app.MySqlGorm, app.AsynqClient, app.ETHClient, &app.TransactinRepository)
 	})
 	mux.HandleFunc(tasks.UserUpdateEmailVerificaitonV1, func(ctx context.Context, task *asynq.Task) error {
-		return tasks.HandleEmailVerificationCodeSendOp(ctx, task, app.RedisClient, app.MailDialer)
+		return tasks.HandleEmailVerificationCodeSendOp(ctx, task, app.RedisClient, app.MailDialer, app.AuthGmailCache)
 	})
 }

@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"coinhub/internal/adapter/repository/cache"
 	repository "coinhub/internal/adapter/repository/postgres"
+	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/domain/services"
 	"coinhub/internal/infrastructure/configs"
@@ -44,6 +46,8 @@ type Application struct {
 	AsynqServer    *asynq.Server
 
 	WsClient *websocket.Conn
+
+	AuthGmailCache *cache.AuthGmailCache
 }
 
 func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
@@ -80,14 +84,32 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	}
 
 	if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumTestnet, configs.App.NetworkStatus); err != nil {
-		zap.S().Fatalw("❌ error in registering websocket client: %s", err.Error())
+		zap.S().Fatalw(
+			"❌ Failed to register websocket client. Configuration: address=%s, network_status=%s, error=%s",
+			configs.App.WSClientEthereumTestnet,
+			configs.App.NetworkStatus,
+			err.Error(),
+		)
 	}
 
 	if err := app.registerMailDialer(ctx); err != nil {
 		zap.S().Fatalw("❌ error in registering mail dialer: %s", err.Error())
 	}
 
+	if err := app.registerCache(ctx); err != nil {
+		zap.S().Fatalw("❌ error in registering cache: %s", err.Error())
+	}
+
 	return app
+}
+
+func (app *Application) registerCache(ctx context.Context) error {
+	if _, err := app.RedisClient.Ping(ctx).Result(); err != nil {
+		return fmt.Errorf("cache configuration failed because redis client has not registered yet")
+	}
+	app.AuthGmailCache = cache.NewAuthGmailCache(ctx, app.RedisClient, tasks.EMAIL_VERIFICATION_CODE_LIFETIME_DURATION)
+	zap.S().Info("AuthGmailCache initialized and registered with Redis ✅")
+	return nil
 }
 
 func (app *Application) registerAsynqClient() error {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/exp/rand"
 )
 
@@ -24,5 +25,6 @@ func GenerateRandomString(length int) string {
 	for i := range b {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
+	zap.S().Debugw(" +++ code", "code", strings.ToUpper(string(b)))
 	return strings.ToUpper(string(b))
 }

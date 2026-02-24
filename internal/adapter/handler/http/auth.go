@@ -4,19 +4,20 @@ import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/handler/http/helper"
 	"coinhub/internal/adapter/handler/http/schema"
-	"coinhub/internal/adapter/repository/cache"
 	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/services"
 	"coinhub/internal/infrastructure/security"
 	"coinhub/internal/usecases/user_usecases"
-	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // RegisterUser godoc
@@ -47,8 +48,14 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 	}
 	zap.S().Infow("RegisterUser", "username", req.Username, "hashed password", hashedUserPassword)
 
-	user := entities.NewUser(req.Firstname, req.Lastname, req.Username, req.Gmail, hashedUserPassword, entities.GmailVerificationNotRegistered, entities.StatusActive)
+	user := entities.NewUser(req.Firstname, req.Lastname, req.Username, req.Gmail, hashedUserPassword, entities.GmailVerificationStatusPending, entities.StatusActive)
 	if err := registerUsecases.Register(c, app.WalletService, user); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			if user.GmailVerificationStatus == entities.GmailVerificationStatusPending {
+				responseHelper.BadRequestStandard(c, "user has already registered with pending gmail verification status")
+				return err
+			}
+		}
 		responseHelper.InternalServerErrorStandard(c, err.Error())
 		return err
 	}
@@ -57,7 +64,7 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 	if err := tasks.EnqueueEmailVerificationCodeTask(
 		c,
 		app.AsynqClient,
-		time.Now().GoString(),
+		time.Now().Format(time.RFC3339),
 		c.ClientIP(),
 		"New York, USA", // TODO : implement location discovery via Client IP
 		c.Request.UserAgent(),
@@ -107,27 +114,139 @@ func VerifyGmailVerificationCode(c *gin.Context, app *internal.Application) erro
 		return err
 	}
 
-	authGmailCache := cache.NewAuthGmailCache(context.Background(), app.RedisClient, time.Minute)
-	cachedCode, err := authGmailCache.GetGmailVerificationCode(c, app.RedisClient, req.Gmail, req.Username)
+	zap.S().Infow(
+		"Verifying Gmail verification code request",
+		"gmail", req.Gmail,
+		"username", req.Username,
+		"code", req.VerificationCode,
+	)
+
+	var user entities.User
+	if err := app.UserRepository.GetUserByGmail(c, &user, req.Gmail); err != nil {
+		zap.S().Warnw("User not found for resend gmail verification", "gmail", req.Gmail, "error", err)
+		responseHelper.UnauthorizedStandard(c, "user not found")
+		return fmt.Errorf("user not found")
+	}
+	if user.Username == nil || strings.TrimSpace(*user.Username) != strings.TrimSpace(req.Username) {
+		zap.S().Warnw(
+			"requested_username", req.Username,
+			"user_username_ptr", user.Username,
+		)
+		responseHelper.UnauthorizedStandard(c, "username and gmail do not match")
+		return fmt.Errorf("username and gmail do not match")
+	}
+
+	ttl, err := app.AuthGmailCache.GetGmailVerificationCodeTimeLeft(c, app.RedisClient, req.Gmail, req.Username)
 	if err != nil {
+		zap.S().Errorw("failed to get gmail verification code TTL", "error", err, "gmail", req.Gmail, "username", req.Username)
+		responseHelper.InternalServerError(c, "failed to check verification code TTL")
+		return err
+	}
+	if ttl.Seconds() < 0 {
+		responseHelper.ErrorStandard(c, http.StatusTooEarly, "Verification code has expired. Please resend the code to get new verification code.")
+		return fmt.Errorf("verification code for this user is still alive")
+	}
+
+	cachedCode, err := app.AuthGmailCache.GetGmailVerificationCode(c, app.RedisClient, req.Gmail, req.Username)
+	if err != nil {
+		responseHelper.UnauthorizedStandard(c, "invalid or expired verification code")
 		return err
 	}
 
-	if cachedCode == req.VerificationCode {
+	if cachedCode != req.VerificationCode {
 		responseHelper.UnauthorizedStandard(c, "invalid verification code")
 		return fmt.Errorf("invalid verification code")
+	}
+
+	if err := app.UserRepository.UpdateGmailVerificationStatus(c, *user.Gmail, entities.GmailVerificationStatusVerified); err != nil {
+		responseHelper.InternalServerError(c, "failed to update gmail verification status")
+		zap.S().Errorw("failed to update gmail verification status", "err", err, "userID", user.ID)
+		return err
 	}
 
 	jwtToken, err := security.GenerateToken(req.Username)
 	if err != nil {
 		return err
 	}
-	zap.S().Infow("user jwt token", "token", jwtToken)
 
 	responseHelper.SuccessStandard(c, schema.GmailVerificationCodeResponse{
 		Code:     http.StatusOK,
 		Message:  "user verified successfuly",
 		JWTToken: jwtToken,
+	})
+	return nil
+}
+
+// ResendGmailVerificationCodeHandler godoc
+// @Summary      Resend Gmail Verification Code
+// @Description  Resend a new verification code to user's Gmail
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        request  body      schema.GmailVerificationCodeResendRequest  true  "Resend gmail verification code request"
+// @Success      200      {object}  helper.SuccessResponse               "Verification code resent successfully"
+// @Failure      400      {object}  helper.ErrorResponse                 "Invalid request body"
+// @Failure      401      {object}  helper.ErrorResponse                 "Unauthorized or Gmail not found"
+// @Failure      500      {object}  helper.ErrorResponse                 "Internal server error"
+// @Router       /v1/auth/resend/gmail-code [post]
+func ResendGmailVerificationCodeHandler(c *gin.Context, app *internal.Application) error {
+	var req schema.GmailVerificationCodeResendRequest
+	responseHelper := helper.NewResponseHelper()
+	if err := c.ShouldBindJSON(&req); err != nil {
+		responseHelper.InvalidRequestBody(c)
+		return err
+	}
+
+	var user entities.User
+	if err := app.UserRepository.GetUserByGmail(c, &user, req.Gmail); err != nil {
+		zap.S().Warnw("User not found for resend gmail verification", "gmail", req.Gmail, "error", err)
+		responseHelper.UnauthorizedStandard(c, "user not found")
+		return fmt.Errorf("user not found")
+	}
+	if user.Username == nil || strings.TrimSpace(*user.Username) != strings.TrimSpace(req.Username) {
+		zap.S().Warnw(
+			"requested_username", req.Username,
+			"user_username_ptr", user.Username,
+		)
+		responseHelper.UnauthorizedStandard(c, "username and gmail do not match")
+		return fmt.Errorf("username and gmail do not match")
+	}
+
+	if user.IsVerified {
+		zap.S().Errorln("the user is already verified")
+		responseHelper.BadRequestStandard(c, "the user is already verified")
+		return fmt.Errorf("the user is already verified")
+	}
+
+	ttl, err := app.AuthGmailCache.GetGmailVerificationCodeTimeLeft(c, app.RedisClient, req.Gmail, req.Username)
+	if err != nil {
+		zap.S().Errorw("failed to get gmail verification code TTL", "error", err, "gmail", req.Gmail, "username", req.Username)
+		responseHelper.InternalServerError(c, "failed to check verification code TTL")
+		return err
+	}
+	if ttl.Seconds() > 0 {
+		responseHelper.ErrorStandard(c, http.StatusTooEarly, "Verification code has already sent. Please try again later.")
+		return fmt.Errorf("verification code for this user is still alive")
+	}
+
+	// You might enqueue an async mail job here, mock for now.
+	if err := tasks.EnqueueEmailVerificationCodeTask(
+		c,
+		app.AsynqClient,
+		time.Now().GoString(),
+		c.ClientIP(),
+		"New York, USA", // TODO : implement location discovery via Client IP
+		c.Request.UserAgent(),
+		fmt.Sprintf("%d", time.Now().Year()),
+		*user.Gmail,
+		*user.Username,
+	); err != nil {
+		return err
+	}
+
+	responseHelper.SuccessStandard(c, gin.H{
+		"code":    http.StatusOK,
+		"message": "verification code resent successfully",
 	})
 	return nil
 }
