@@ -2,11 +2,8 @@ package services
 
 import (
 	"coinhub/internal/infrastructure/security"
-	"strings"
-	"time"
-
-	"go.uber.org/zap"
-	"golang.org/x/exp/rand"
+	"crypto/rand"
+	"math/big"
 )
 
 // The buissiness logic for the User entity, like validating and hashing password, NO DB CALL!
@@ -20,11 +17,15 @@ func VerifyUserPasswordHash[T interface{ string | []byte }](rawPassword T, passw
 
 func GenerateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	rand.New(rand.NewSource(uint64(time.Now().UnixNano())))
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+	result := make([]byte, length)
+
+	for i := range result {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return ""
+		}
+		result[i] = charset[n.Int64()]
 	}
-	zap.S().Debugw(" +++ code", "code", strings.ToUpper(string(b)))
-	return strings.ToUpper(string(b))
+
+	return string(result)
 }

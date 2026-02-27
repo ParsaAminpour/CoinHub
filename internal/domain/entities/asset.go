@@ -28,13 +28,14 @@ const (
 type Asset struct {
 	gorm.Model
 	ID                  uuid.UUID `json:"id" gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Name                string    `json:"name"`
-	Symbol              string    `json:"symbol"`
+	Name                *string   `json:"name"`
+	Symbol              *string   `json:"symbol"`
 	MaxSize             float64
 	NetworkAvailability AssetNetworkAvailability `gorm:"type:jsonb"`
 	Status              AssetStatus
-	AssetAddress        string       `json:"asset_address" gorm:"unique;index;not null"`
-	Network             AssetNetwork `json:"network" gorm:"default:testnet"`
+	AssetAddress        string          `json:"asset_address" gorm:"unique;index;not null"`
+	Network             AssetNetwork    `json:"network" gorm:"default:testnet"`
+	TransferEvents      []TransferEvent `json:"transfer_event" gorm:"foreignKey:AssetID"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`

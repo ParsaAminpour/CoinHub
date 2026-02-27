@@ -29,6 +29,8 @@ type Application struct {
 	UserRepository          repositories.UserRepository
 	WalletAccountRepository repositories.WalletAccountRepository
 	TransactinRepository    repositories.EVMTransactionRepository
+	TransferRepository      repositories.TransferEventRepository
+	AssetRepository         repositories.AssetRepository
 	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
@@ -37,7 +39,8 @@ type Application struct {
 	RedisClient *redis.Client // add it later
 	MySqlGorm   *gorm.DB
 
-	ETHClient *ethclient.Client
+	ETHClient          *ethclient.Client
+	ETHWebsocketClient *ethclient.Client
 
 	hdWallet *hdwallet.Wallet // private - only accessible through WalletService
 
@@ -131,6 +134,8 @@ func (app *Application) registerRepositories() error {
 	app.UserRepository = repository.NewUserRepository(app.MySqlGorm)
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
+	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)
+	app.AssetRepository = repository.NewAssetRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	zap.S().Infow("Repositories registered ✅")
 	return nil
@@ -157,17 +162,27 @@ func (app *Application) registerHDWallet() error {
 }
 
 func (app *Application) registerETHClient() error {
-	var baseUrl string
+	var httpBaseUrl string
+	var wssBaseUrl string
 	if app.Configs.App.NetworkStatus == "MAINNET" {
-		baseUrl = app.Configs.App.ETHClientMainnet
+		httpBaseUrl = app.Configs.App.ETHClientMainnet
+		wssBaseUrl = app.Configs.App.WSClientEthereumMainnet
 	} else {
-		baseUrl = app.Configs.App.ETHClientTestnet
+		httpBaseUrl = app.Configs.App.ETHClientTestnet
+		wssBaseUrl = app.Configs.App.WSClientEthereumTestnet
 	}
-	client, err := ethclient.Dial(baseUrl)
+
+	httpClient, err := ethclient.Dial(httpBaseUrl)
 	if err != nil {
 		return err
 	}
-	app.ETHClient = client
+	wsClient, err := ethclient.Dial(wssBaseUrl)
+	if err != nil {
+		return err
+	}
+
+	app.ETHClient = httpClient
+	app.ETHWebsocketClient = wsClient
 	zap.S().Infow("ETHClient registered ✅")
 	return nil
 }
@@ -179,7 +194,6 @@ func (app *Application) registerServices() error {
 }
 
 func (app *Application) registerRedis(ctx context.Context) error {
-
 	client := redis.NewClient(&redis.Options{
 		Addr:     app.Configs.RedisAddress(),
 		Password: app.Configs.Storage.Redis.Password,

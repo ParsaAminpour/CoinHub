@@ -7,6 +7,39 @@ definitions:
       success:
         type: boolean
     type: object
+  helper.SuccessResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+  schema.GmailVerificationCodeRequest:
+    properties:
+      gmail:
+        type: string
+      username:
+        type: string
+      verification_code:
+        type: string
+    type: object
+  schema.GmailVerificationCodeResendRequest:
+    properties:
+      gmail:
+        type: string
+      username:
+        type: string
+    type: object
+  schema.GmailVerificationCodeResponse:
+    properties:
+      code:
+        type: integer
+      jwt_token:
+        type: string
+      message:
+        type: string
+    type: object
   schema.LoginUserResponse:
     properties:
       code:
@@ -62,8 +95,6 @@ definitions:
       gmail:
         type: string
       id:
-        type: string
-      jwt_token:
         type: string
       lastname:
         type: string
@@ -206,6 +237,74 @@ paths:
           schema:
             $ref: '#/definitions/helper.ErrorResponse'
       summary: Register a new user
+      tags:
+      - auth
+  /v1/auth/resend/gmail-code:
+    post:
+      consumes:
+      - application/json
+      description: Resend a new verification code to user's Gmail
+      parameters:
+      - description: Resend gmail verification code request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.GmailVerificationCodeResendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Verification code resent successfully
+          schema:
+            $ref: '#/definitions/helper.SuccessResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "401":
+          description: Unauthorized or Gmail not found
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Resend Gmail Verification Code
+      tags:
+      - auth
+  /v1/auth/verify/gmail-code:
+    post:
+      consumes:
+      - application/json
+      description: Verify user's Gmail verification code for registration
+      parameters:
+      - description: Verification code request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.GmailVerificationCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Verification successful, JWT returned
+          schema:
+            $ref: '#/definitions/schema.GmailVerificationCodeResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "401":
+          description: Invalid verification code
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Verify Gmail Verification Code
       tags:
       - auth
   /v1/transaction/withdraw:

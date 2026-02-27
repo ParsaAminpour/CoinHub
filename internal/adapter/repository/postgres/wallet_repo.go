@@ -5,6 +5,7 @@ import (
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/domain/services"
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -75,6 +76,28 @@ func (w WalletAccountRepository) GetByUserID(ctx context.Context,
 	userID uuid.UUID) (*entities.WalletAccount, error) {
 	var walletAccount entities.WalletAccount
 	if err := w.db.WithContext(ctx).Where("user_id = ?", userID).First(&walletAccount).Error; err != nil {
+		return nil, err
+	}
+	return &walletAccount, nil
+}
+
+func (w WalletAccountRepository) UpdateTheBalanceSync(ctx context.Context, walletAddress string, flag bool, lastBalanceSyncedAtTimestamp time.Time) error {
+	updates := map[string]interface{}{
+		"balance_synced":                   flag,
+		"last_balance_synced_at_timestamp": lastBalanceSyncedAtTimestamp,
+	}
+	if err := w.db.WithContext(ctx).
+		Model(&entities.WalletAccount{}).
+		Where("wallet_address = ?", walletAddress).
+		Updates(updates).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w WalletAccountRepository) GetByWalletAddress(ctx context.Context, walletAddress string) (*entities.WalletAccount, error) {
+	var walletAccount entities.WalletAccount
+	if err := w.db.WithContext(ctx).Where("wallet_address = ?", walletAddress).First(&walletAccount).Error; err != nil {
 		return nil, err
 	}
 	return &walletAccount, nil

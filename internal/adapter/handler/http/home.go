@@ -2,6 +2,7 @@ package http
 
 import (
 	"coinhub/internal"
+	"coinhub/internal/adapter/tasks"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -9,39 +10,20 @@ import (
 )
 
 func GetHome(c *gin.Context, app *internal.Application) error {
-	remain, _ := app.AuthGmailCache.GetGmailVerificationCodeTimeLeft(c, app.RedisClient, "megumianzu00@gmail.com", "david")
-	if remain < 0 {
-		zap.S().Infow("time remained is negative", "duration", remain)
-	} else {
-		zap.S().Infow("time remained is positive", "duration", remain)
-	}
-	cachedCode, err := app.AuthGmailCache.GetGmailVerificationCode(c, app.RedisClient, "megumianzu00@gmail.com", "david")
-	if err != nil {
-		zap.S().Errorw("failed to get gmail verification code", "error", err)
+	if err := tasks.EnqueueTransferEventTask(
+		c,
+		app.AsynqClient,
+		"0x64ff606c52067dfa870db3b5700ed4c63c10df1ce72c0f1283887aa2b8f52cab",
+		"0x1c255DB352E8B3CC16EFd721C61d7b1B5952b2bb",
+		"0xc7d1cd54dcb800919614e6b1f073941b57edfc3e",
+		"1000000000",
+		"0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+		38131927,
+		false,
+	); err != nil {
+		zap.S().Errorf("failed to enqueue transfer event task: %v", err)
 		return err
 	}
-	zap.S().Infow("fetched cached gmail verification code", "cachedCode", cachedCode)
-
-	// if err := tasks.EnqueueEmailVerificationCodeTask(
-	// 	context.Background(),
-	// 	app.AsynqClient,
-	// 	"2024-01-01 12:00:00",         // requestTime: mock time
-	// 	"192.168.1.1",                 // ip: mock IP
-	// 	"New York, USA",               // location: mock location
-	// 	"Chrome on Windows",           // device: mock device
-	// 	"2026",                        // year: mock year
-	// 	"parsa.aminpour.cc@gmail.com", // toMail: mock recipient
-	// 	"itzparsa",
-	// ); err != nil {
-	// 	return err
-	// }
-
-	// code, err := authGmailCache.GetGmailVerificationCode(context.Background(), app.RedisClient, "parsa.aminpour.cc@gmail.com", "itzparsa")
-	// if err != nil {
-	// 	zap.S().Errorw("failed to get gmail verification code", "error", err)
-	// 	return err
-	// }
-	// zap.S().Infof("verification code: %v", code)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "pong",

@@ -1,0 +1,116 @@
+package tasks
+
+import (
+	"coinhub/internal/domain/entities"
+	"coinhub/internal/domain/repositories"
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/hibiken/asynq"
+	"go.uber.org/zap"
+)
+
+type TransferEventPayload struct {
+	TrxHash     string
+	BlockNumber uint64
+	From        string
+	To          string
+	IsReceiver  bool
+	value       string
+	TokenCA     string
+	Time        time.Time
+}
+
+func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNumner uint64, isReceiver bool) (*asynq.Task, error) {
+	transferEventPayload, err := json.Marshal(TransferEventPayload{
+		TrxHash:     trxHash,
+		BlockNumber: blockNumner,
+		From:        from,
+		To:          to,
+		IsReceiver:  isReceiver,
+		value:       value,
+		TokenCA:     tokenCA,
+		Time:        time.Unix(time.Now().Unix(), 0),
+	})
+	if err != nil {
+		return nil, err
+	}
+	task := asynq.NewTask(TransferEventCreateV1, transferEventPayload, nil)
+	return task, nil
+}
+
+func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, trxHash, from, to, value, tokenCA string, blockNumner uint64, isReceiver bool) error {
+	task, err := RegisterTransferEventTask(trxHash, from, to, value, tokenCA, blockNumner, isReceiver)
+	if err != nil {
+		return err
+	}
+	// TODO : set appropriate opts for this section.
+	info, err := asynqClient.EnqueueContext(ctx, task,
+		asynq.Queue("transaction"),
+		asynq.MaxRetry(2),
+		asynq.Timeout(60*time.Second),
+		asynq.Retention(24*time.Hour),  // how long to keep the task in the queue
+		asynq.ProcessIn(5*time.Second), // how long to wait before processing the task
+	)
+	if err != nil {
+		return err
+	}
+	zap.S().Infow("Enqueued update transfer task", "task_id", info.ID, "queue", info.Queue, "max_retry", info.MaxRetry, "timeout", info.Timeout, "trxHash", trxHash)
+	return nil
+}
+
+func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository) error {
+	var payload TransferEventPayload
+	err := json.Unmarshal(t.Payload(), &payload)
+	if err != nil {
+		zap.S().Errorw("Failed to unmarshal transfer event payload", "error", err, "task_payload", string(t.Payload()))
+		return err
+	}
+
+	zap.S().Infow("Handling transfer event task",
+		"trxHash", payload.TrxHash,
+		"blockNumber", payload.BlockNumber,
+		"from", payload.From,
+		"to", payload.To,
+		"isReceiver", payload.IsReceiver,
+		"value", payload.value,
+		"tokenCA", payload.TokenCA,
+		"time", payload.Time,
+	)
+
+	var infectedAddress string
+	if infectedAddress = payload.To; !payload.IsReceiver {
+		infectedAddress = payload.From
+	}
+	if err := walletRepo.UpdateTheBalanceSync(ctx, infectedAddress, payload.IsReceiver, payload.Time); err != nil {
+		return err
+	}
+
+	zap.S().Infow("Updated wallet balance",
+		"infected_address", infectedAddress,
+		"is_receiver", payload.IsReceiver,
+	)
+
+	var asset *entities.Asset
+	if err := assetRepo.GetAssetByCotnractAddress(ctx, asset, payload.TokenCA); err != nil {
+		zap.S().Warnw("Failed to get asset by contract address", "error", err, "tokenCA", payload.TokenCA)
+		return err
+	}
+	transferEvent := entities.NewTransferEvent(
+		payload.TrxHash,
+		payload.BlockNumber,
+		asset.ID,
+		payload.From,
+		payload.To,
+		payload.value,
+		*asset.Symbol,
+		payload.Time,
+	)
+	if err := transferEventRepo.Create(ctx, transferEvent); err != nil {
+		zap.S().Errorw("Failed to create transfer event", "error", err, "transfer_event", transferEvent)
+		return err
+	}
+	zap.S().Info("Processed transfer event successfully")
+	return nil
+}

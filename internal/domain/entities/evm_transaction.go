@@ -23,6 +23,7 @@ const (
 	RevertedStatus  TransactionStatus = "REVERTED"
 )
 
+// NOTE : including EVMTransferions that just triggered from our application.
 type EvmTransaction struct {
 	gorm.Model
 	// Foreign key to User (one user can have many EVM transactions)

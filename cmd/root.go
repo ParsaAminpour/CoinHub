@@ -48,6 +48,7 @@ func init() {
 	rootCmd.AddCommand(RunMigrate(&configs.C))
 	rootCmd.AddCommand(RunMatching(&configs.C))
 	rootCmd.AddCommand(RunWorker(&configs.C))
+	rootCmd.AddCommand(RunOnchainWatcher(&configs.C))
 }
 
 func Execute() {

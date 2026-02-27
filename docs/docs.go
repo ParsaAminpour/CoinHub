@@ -165,6 +165,110 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/resend/gmail-code": {
+            "post": {
+                "description": "Resend a new verification code to user's Gmail",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Resend Gmail Verification Code",
+                "parameters": [
+                    {
+                        "description": "Resend gmail verification code request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/schema.GmailVerificationCodeResendRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Verification code resent successfully",
+                        "schema": {
+                            "$ref": "#/definitions/helper.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized or Gmail not found",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/verify/gmail-code": {
+            "post": {
+                "description": "Verify user's Gmail verification code for registration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Verify Gmail Verification Code",
+                "parameters": [
+                    {
+                        "description": "Verification code request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/schema.GmailVerificationCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Verification successful, JWT returned",
+                        "schema": {
+                            "$ref": "#/definitions/schema.GmailVerificationCodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid verification code",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/transaction/withdraw": {
             "post": {
                 "description": "Handles asset withdrawal requests for native tokens.",
@@ -228,6 +332,57 @@ const docTemplate = `{
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "helper.SuccessResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "schema.GmailVerificationCodeRequest": {
+            "type": "object",
+            "properties": {
+                "gmail": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                },
+                "verification_code": {
+                    "type": "string"
+                }
+            }
+        },
+        "schema.GmailVerificationCodeResendRequest": {
+            "type": "object",
+            "properties": {
+                "gmail": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "schema.GmailVerificationCodeResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "jwt_token": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
                 }
             }
         },
@@ -312,9 +467,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
-                    "type": "string"
-                },
-                "jwt_token": {
                     "type": "string"
                 },
                 "lastname": {

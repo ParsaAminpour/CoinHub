@@ -1,6 +1,8 @@
 package entities
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -37,10 +39,14 @@ type WalletAccount struct {
 
 	UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex"` // Unique since User hasOne WalletAccount
 	// last path segment: m/44'/60'/0'/0/<WalletAddressIndex>
-	WalletAddressIndex uint64 `gorm:"not null;uniqueIndex:uniq_address_index;index;->"`
+	WalletAddressIndex uint64 `gorm:"uniqueIndex:uniq_address_index;index;->"`
 	WalletAddress      string `gorm:"size:42;not null;uniqueIndex:uniq_chain_address"`
 	AccountType        AccountType
 	Status             WalletAccountStatus
+
+	// There would be a websocket that will sync the user with this state.
+	BalanceSynced                bool      `gorm:"default:false;not null"`
+	LastBalanceSyncedAtTimestamp time.Time `gorm:"type:timestamptz"`
 
 	DepositsEnabled bool `gorm:"default:true;not null"`
 	StatusReason    *string
