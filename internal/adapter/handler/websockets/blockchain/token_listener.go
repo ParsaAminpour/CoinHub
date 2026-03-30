@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"coinhub/internal/adapter/repository/cache"
 	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/repositories"
 	"coinhub/pkg/token"
@@ -29,28 +30,38 @@ type LogTransfer struct {
 	From  common.Address
 	To    common.Address
 	Value *big.Int
+	Raw   types.Log
 }
 
 type LogApproval struct {
 	Owner   common.Address
 	Spender common.Address
 	Value   *big.Int
+	Raw     types.Log
 }
 
 // NOTE : the tokenContractAddresses come from the Database related to our supported assets
-func startEVMTokenBalanceListener(ctx context.Context, asynqClient *asynq.Client, client *ethclient.Client, walletRepo *repositories.WalletAccountRepository, tokenContractAddresses []common.Address, fromBlock int) error {
+func startEVMTokenBalanceListener(
+	ctx context.Context,
+	asynqClient *asynq.Client,
+	client *ethclient.Client,
+	walletRepo *repositories.WalletAccountRepository,
+	tokenContractAddresses []common.Address,
+	pendingTransactionsCache *cache.PendingTransactionsCache,
+	fromBlock int,
+) error {
 	evmTokenLogs = make(chan types.Log)
 
 	query := ethereum.FilterQuery{
 		FromBlock: big.NewInt(int64(fromBlock)),
 		Addresses: tokenContractAddresses,
 	}
-	sub, err := client.SubscribeFilterLogs(ctx, query, evmTokenLogs)
+	tokenContractABI, err := abi.JSON(strings.NewReader(string(token.TokenABI)))
 	if err != nil {
 		return err
 	}
 
-	tokenContractABI, err := abi.JSON(strings.NewReader(string(token.TokenABI)))
+	sub, err := client.SubscribeFilterLogs(ctx, query, evmTokenLogs)
 	if err != nil {
 		return err
 	}
@@ -75,8 +86,9 @@ func startEVMTokenBalanceListener(ctx context.Context, asynqClient *asynq.Client
 					"from", transferLog.From.Hex(),
 					"to", transferLog.To.Hex(),
 					"value", transferLog.Value.String(),
+					"raw", transferLog.Raw,
 				)
-				if err := handleTransferHunt(ctx, asynqClient, *walletRepo, tLog.TxHash.Hex(), transferLog.From.Hex(), transferLog.To.Hex(), transferLog.Value.String(), tLog.Address.String(), tLog.BlockNumber); err != nil {
+				if err := handleTransferHunt(ctx, asynqClient, pendingTransactionsCache, *walletRepo, tLog.TxHash.Hex(), transferLog.From.Hex(), transferLog.To.Hex(), transferLog.Value.String(), tLog.Address.String(), tLog.BlockNumber); err != nil {
 					zap.S().Errorw("handleTransferHunt failed", "error", err)
 				}
 
@@ -91,6 +103,7 @@ func startEVMTokenBalanceListener(ctx context.Context, asynqClient *asynq.Client
 					"tokenOwner", approvalLog.Owner.Hex(),
 					"spender", approvalLog.Spender.Hex(),
 					"value", approvalLog.Value.String(),
+					"raw", approvalLog.Raw,
 				)
 			}
 			zap.S().Info("-------------------------------")
@@ -99,15 +112,20 @@ func startEVMTokenBalanceListener(ctx context.Context, asynqClient *asynq.Client
 }
 
 // NOTE: The scenario when both 'from' and 'to' belong to the system is an internal transfer, which will be handled by its appropriate handler.
-func handleTransferHunt(ctx context.Context, asynqClient *asynq.Client, walletRepo repositories.WalletAccountRepository, trxHash, from, to, value, tokenCA string, blockNumner uint64) error {
-	var isReceiver bool
-	if _, err := walletRepo.GetByWalletAddress(ctx, to); err != nil {
-		isReceiver = true
-	} else if _, err := walletRepo.GetByWalletAddress(ctx, from); err != nil {
-		isReceiver = false
-	} else {
-		return fmt.Errorf("both from and to address are not belong to the system")
+func handleTransferHunt(
+	ctx context.Context,
+	asynqClient *asynq.Client,
+	pendingTransactionsCache *cache.PendingTransactionsCache,
+	walletRepo repositories.WalletAccountRepository,
+	trxHash, from, to, value, tokenCA string,
+	blockNumner uint64,
+) error {
+	// just check if the transaction is pending in the cache
+	if _, err := pendingTransactionsCache.GetPendingTransaction(ctx, trxHash); err != nil {
+		zap.S().Errorw("transaction is not pending", "error", err, "trxHash", trxHash)
+		return fmt.Errorf("transaction is not pending")
 	}
+	zap.S().Infow("transaction is pending in the cache and will be handled by the task handler", "trxHash", trxHash)
 
 	return tasks.EnqueueTransferEventTask(
 		ctx,
@@ -118,6 +136,5 @@ func handleTransferHunt(ctx context.Context, asynqClient *asynq.Client, walletRe
 		value,
 		tokenCA,
 		blockNumner,
-		isReceiver,
 	)
 }

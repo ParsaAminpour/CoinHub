@@ -1,6 +1,7 @@
 package wallet_usecases
 
 import (
+	"coinhub/internal/adapter/repository/cache"
 	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
@@ -44,6 +45,7 @@ func (
 	callerUserID uuid.UUID,
 	asynqClient *asynq.Client,
 	client *ethclient.Client,
+	trxCache *cache.PendingTransactionsCache,
 	fromAccount *accounts.Account,
 	toPk string,
 	amountInWei *big.Int,
@@ -114,6 +116,14 @@ func (
 	if err := wu.transactionRepo.CreateTransaction(ctx, &transaction); err != nil {
 		return "", err
 	}
+
+	// add pending transaction trx hash to the cache for checking in our watcher
+	if err := trxCache.SetPendingTransaction(ctx, trxHash); err != nil {
+		zap.S().Errorw("failed to add pending transaction to the cache", "error", err, "txHash", trxHash)
+		return "", err
+	}
+	zap.S().Infow("pending transaction added to the cache", "txHash", trxHash)
+
 	if err := tasks.EnqueuPendingTransactions(ctx, asynqClient, trxHash, int(chainId)); err != nil {
 		return "", err
 	}

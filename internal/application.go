@@ -50,7 +50,8 @@ type Application struct {
 
 	WsClient *websocket.Conn
 
-	AuthGmailCache *cache.AuthGmailCache
+	AuthGmailCache           *cache.AuthGmailCache
+	PendingTransactionsCache *cache.PendingTransactionsCache
 }
 
 func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
@@ -111,6 +112,7 @@ func (app *Application) registerCache(ctx context.Context) error {
 		return fmt.Errorf("cache configuration failed because redis client has not registered yet")
 	}
 	app.AuthGmailCache = cache.NewAuthGmailCache(ctx, app.RedisClient, tasks.EMAIL_VERIFICATION_CODE_LIFETIME_DURATION)
+	app.PendingTransactionsCache = cache.NewPendingTransactionsCache(ctx, app.RedisClient, cache.PENDING_TRANSACTION_LIFETIME_DURATION)
 	zap.S().Info("AuthGmailCache initialized and registered with Redis ✅")
 	return nil
 }
