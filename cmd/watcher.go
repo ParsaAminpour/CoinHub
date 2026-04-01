@@ -23,6 +23,7 @@ func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
 
 			app := internal.NewApplication(ctx, configs)
 
+			// TODO : add onchain listener for all available and supporting networks
 			if err := blockchain.StartOnchainListener(ctx, &app); err != nil {
 				zap.S().Fatalw("failed to start onchain listener", "error", err)
 			}

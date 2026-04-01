@@ -8,4 +8,5 @@ import (
 type AssetRepository interface {
 	Create(ctx context.Context, asset *entities.Asset) error
 	GetAssetByCotnractAddress(ctx context.Context, ca string) (*entities.Asset, error)
+	GetAvailableAssets(ctx context.Context) ([]entities.Asset, error)
 }

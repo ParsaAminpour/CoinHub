@@ -81,6 +81,7 @@ func startEVMTokenBalanceListener(
 	}
 
 	for {
+	RECONNECTING:
 		select {
 		case err := <-sub.Err():
 			zap.S().Errorw("subscription error in EVM token log listener", "error", err)
@@ -88,14 +89,13 @@ func startEVMTokenBalanceListener(
 			sub, err = subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
 			if err != nil {
 				zap.S().Errorw("failed to reconnect to EVM token log listener", "error", err)
-				break
+				break RECONNECTING
 			}
 			continue
 
 		case tLog := <-evmTokenLogs:
 			switch tLog.Topics[0].Hex() {
 			case logTransferSigHash.Hex():
-				zap.S().Infow("the evmTokenLogs", "entireLog", tLog) // remove this log
 				var transferLog token.TokenTransfer
 				if err := tokenContractABI.UnpackIntoInterface(&transferLog, "Transfer", tLog.Data); err != nil {
 					zap.S().Errorw("failed to unpack Transfer event", "error", err, "log", tLog)
@@ -104,6 +104,7 @@ func startEVMTokenBalanceListener(
 				transferLog.To = common.HexToAddress(tLog.Topics[2].Hex())
 				zap.S().Debugw(
 					"TransferLog",
+					"contractAddress", tLog.Address.Hex(),
 					"hash", tLog.TxHash.Hex(),
 					"from", transferLog.From.Hex(),
 					"to", transferLog.To.Hex(),
@@ -122,6 +123,7 @@ func startEVMTokenBalanceListener(
 				approvalLog.Spender = common.HexToAddress(tLog.Topics[2].Hex())
 				zap.S().Debugw(
 					"ApprovalLog",
+					"contractAddress", tLog.Address.Hex(),
 					"hash", tLog.TxHash.Hex(),
 					"owner", approvalLog.Owner.Hex(),
 					"spender", approvalLog.Spender.Hex(),
@@ -162,4 +164,6 @@ func handleTransferHunt(
 	)
 }
 
-func handleApprovalHunt(ctx context.Context) error
+func handleApprovalHunt(ctx context.Context) error {
+	return nil
+}

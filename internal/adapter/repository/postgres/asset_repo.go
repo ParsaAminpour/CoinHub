@@ -18,6 +18,14 @@ func NewAssetRepository(db *gorm.DB) repositories.AssetRepository {
 	return &AssetRepository{db: db}
 }
 
+func (ass *AssetRepository) GetAvailableAssets(ctx context.Context) ([]entities.Asset, error) {
+	var availableAssets []entities.Asset
+	if err := ass.db.Model(&entities.Asset{}).Where("status = ?", entities.AssetStatusActive).Find(&availableAssets).Error; err != nil {
+		return nil, err
+	}
+	return availableAssets, nil
+}
+
 // TODO : refactor this functoin
 func (ass *AssetRepository) GetAssetByCotnractAddress(ctx context.Context, ca string) (*entities.Asset, error) {
 	allAssets := []entities.Asset{}
