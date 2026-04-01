@@ -101,11 +101,12 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		"is_receiver", isReceiver,
 	)
 
-	var asset *entities.Asset
-	if err := assetRepo.GetAssetByCotnractAddress(ctx, asset, payload.TokenCA); err != nil {
+	asset, err := assetRepo.GetAssetByCotnractAddress(ctx, payload.TokenCA)
+	if err != nil {
 		zap.S().Warnw("Failed to get asset by contract address", "error", err, "tokenCA", payload.TokenCA)
-		return err
+		return fmt.Errorf("asset not found")
 	}
+
 	transferEvent := entities.NewTransferEvent(
 		payload.TrxHash,
 		payload.BlockNumber,

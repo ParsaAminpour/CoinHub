@@ -88,7 +88,7 @@ func startEVMTokenBalanceListener(
 			sub, err = subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
 			if err != nil {
 				zap.S().Errorw("failed to reconnect to EVM token log listener", "error", err)
-				continue
+				break
 			}
 			continue
 
@@ -143,11 +143,11 @@ func handleTransferHunt(
 ) error {
 	// just check if the transaction is pending in the cache
 	if _, err := pendingTransactionsCache.GetPendingTransaction(ctx, trxHash); err != nil {
-		zap.S().Errorw("transaction is not pending", "error", err, "trxHash", trxHash)
+		zap.S().Warnw("transaction is not pending", "error", err, "trxHash", trxHash)
 		return fmt.Errorf("transaction is not pending")
 	}
-	zap.S().Infow("transaction is pending in the cache and will be handled by the task handler", "trxHash", trxHash)
 
+	zap.S().Infow("transaction is pending in the cache and will be handled by the task handler", "trxHash", trxHash)
 	return tasks.EnqueueTransferEventTask(
 		ctx,
 		asynqClient,

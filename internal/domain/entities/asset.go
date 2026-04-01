@@ -33,7 +33,7 @@ type Asset struct {
 	MaxSize             float64
 	NetworkAvailability AssetNetworkAvailability `gorm:"type:jsonb"`
 	Status              AssetStatus
-	AssetAddress        string          `json:"asset_address" gorm:"unique;index;not null"`
+	AssetAddress        *string         `json:"asset_address" gorm:"unique;index;not null"`
 	Network             AssetNetwork    `json:"network" gorm:"default:testnet"`
 	TransferEvents      []TransferEvent `json:"transfer_event" gorm:"foreignKey:AssetID"`
 
