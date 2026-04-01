@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"coinhub/internal/adapter/repository/cache"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
 	"context"
@@ -60,7 +61,7 @@ func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, tr
 	return nil
 }
 
-func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository) error {
+func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository, pendingTransactionsCache *cache.PendingTransactionsCache) error {
 	var payload TransferEventPayload
 	err := json.Unmarshal(t.Payload(), &payload)
 	if err != nil {
@@ -91,10 +92,10 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 	if infectedAddress = payload.To; !isReceiver {
 		infectedAddress = payload.From
 	}
+	// Tag the wallet account balance as synced
 	if err := walletRepo.UpdateTheBalanceSync(ctx, infectedAddress, isReceiver, payload.Time); err != nil {
 		return err
 	}
-
 	zap.S().Infow("Updated wallet balance",
 		"infected_address", infectedAddress,
 		"is_receiver", isReceiver,
@@ -120,5 +121,11 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		return err
 	}
 	zap.S().Info("Processed transfer event successfully")
+
+	if err := pendingTransactionsCache.DeletePendingTransaction(ctx, payload.TrxHash); err != nil {
+		zap.S().Errorw("Failed to delete pending transaction from cache", "error", err, "trxHash", payload.TrxHash)
+		return err
+	}
+	zap.S().Infow("Deleted pending transaction from cache", "trxHash", payload.TrxHash)
 	return nil
 }

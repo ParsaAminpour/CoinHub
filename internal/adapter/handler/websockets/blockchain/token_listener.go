@@ -8,10 +8,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,21 +21,36 @@ import (
 var logTransferSig = []byte("Transfer(address,address,uint256)")
 var logApprovalSig = []byte("Approval(address,address,uint256)")
 
-var logTransferSigHash = crypto.Keccak256(logTransferSig)
-var logApprovalSigHash = crypto.Keccak256(logApprovalSig)
+var logTransferSigHash = crypto.Keccak256Hash(logTransferSig)
+var logApprovalSigHash = crypto.Keccak256Hash(logApprovalSig)
 
+// BUG: the From and To field would not decode correctly and we get zero 20bytes address.
+// The reason is because the the contract we are testing is not verified onchain.
 type LogTransfer struct {
 	From  common.Address
 	To    common.Address
 	Value *big.Int
-	Raw   types.Log
 }
 
+// BUG: the From and To field would not decode correctly and we get zero 20bytes address.
+// The reason is because the the contract we are testing is not verified onchain.
 type LogApproval struct {
 	Owner   common.Address
 	Spender common.Address
 	Value   *big.Int
-	Raw     types.Log
+}
+
+func subscribeToEVMTokenLogs(
+	ctx context.Context,
+	query ethereum.FilterQuery,
+	evmTokenLogs chan types.Log,
+	client *ethclient.Client,
+) (ethereum.Subscription, error) {
+	sub, err := client.SubscribeFilterLogs(ctx, query, evmTokenLogs)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
 }
 
 // NOTE : the tokenContractAddresses come from the Database related to our supported assets
@@ -56,12 +69,13 @@ func startEVMTokenBalanceListener(
 		FromBlock: big.NewInt(int64(fromBlock)),
 		Addresses: tokenContractAddresses,
 	}
-	tokenContractABI, err := abi.JSON(strings.NewReader(string(token.TokenABI)))
+	tokenContractABI, err := token.TokenMetaData.GetAbi()
 	if err != nil {
 		return err
 	}
 
-	sub, err := client.SubscribeFilterLogs(ctx, query, evmTokenLogs)
+	var sub ethereum.Subscription
+	sub, err = subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
 	if err != nil {
 		return err
 	}
@@ -69,41 +83,48 @@ func startEVMTokenBalanceListener(
 	for {
 		select {
 		case err := <-sub.Err():
-			zap.S().Fatalw("subscription error in EVM token log listener", "error", err)
-			// restart from the last lost block
+			zap.S().Errorw("subscription error in EVM token log listener", "error", err)
+			// re-subscribining to the EVM token log listener
+			sub, err = subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
+			if err != nil {
+				zap.S().Errorw("failed to reconnect to EVM token log listener", "error", err)
+				continue
+			}
 			continue
 
 		case tLog := <-evmTokenLogs:
 			switch tLog.Topics[0].Hex() {
-			case common.BytesToHash(logTransferSigHash).Hex():
-				var transferLog LogTransfer
+			case logTransferSigHash.Hex():
+				var transferLog token.TokenTransfer
 				if err := tokenContractABI.UnpackIntoInterface(&transferLog, "Transfer", tLog.Data); err != nil {
 					zap.S().Errorw("failed to unpack Transfer event", "error", err, "log", tLog)
 				}
+				transferLog.From = common.HexToAddress(tLog.Topics[1].Hex())
+				transferLog.To = common.HexToAddress(tLog.Topics[2].Hex())
 				zap.S().Debugw(
 					"TransferLog",
 					"hash", tLog.TxHash.Hex(),
 					"from", transferLog.From.Hex(),
 					"to", transferLog.To.Hex(),
 					"value", transferLog.Value.String(),
-					"raw", transferLog.Raw,
 				)
 				if err := handleTransferHunt(ctx, asynqClient, pendingTransactionsCache, *walletRepo, tLog.TxHash.Hex(), transferLog.From.Hex(), transferLog.To.Hex(), transferLog.Value.String(), tLog.Address.String(), tLog.BlockNumber); err != nil {
 					zap.S().Errorw("handleTransferHunt failed", "error", err)
 				}
 
-			case common.BytesToHash(logApprovalSigHash).Hex():
-				var approvalLog LogApproval
+			case logApprovalSigHash.Hex():
+				var approvalLog token.TokenApproval
 				if err := tokenContractABI.UnpackIntoInterface(&approvalLog, "Approval", tLog.Data); err != nil {
 					zap.S().Errorw("failed to unpack Approval event", "error", err, "log", tLog)
 				}
+				approvalLog.Owner = common.HexToAddress(tLog.Topics[1].Hex())
+				approvalLog.Spender = common.HexToAddress(tLog.Topics[2].Hex())
 				zap.S().Debugw(
 					"ApprovalLog",
 					"hash", tLog.TxHash.Hex(),
-					"tokenOwner", approvalLog.Owner.Hex(),
+					"owner", approvalLog.Owner.Hex(),
 					"spender", approvalLog.Spender.Hex(),
 					"value", approvalLog.Value.String(),
-					"raw", approvalLog.Raw,
 				)
 			}
 			zap.S().Info("-------------------------------")

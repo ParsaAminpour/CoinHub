@@ -48,7 +48,7 @@ type Application struct {
 	AsynqInspector *asynq.Inspector
 	AsynqServer    *asynq.Server
 
-	WsClient *websocket.Conn
+	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
 	AuthGmailCache           *cache.AuthGmailCache
 	PendingTransactionsCache *cache.PendingTransactionsCache
@@ -58,50 +58,49 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	app := Application{Configs: configs}
 
 	if err := app.registerHDWallet(); err != nil {
-		zap.S().Fatalw("error in registering HDWallet: %s", err.Error())
+		zap.S().Fatalf("error in registering HDWallet: %s", err.Error())
 	}
 
-	zap.S().Info("HD wallet initialized and secured")
-
 	if err := app.registerMySqlGorm(); err != nil {
-		zap.S().Fatalw("❌ error in registering DB: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering DB: %s", err.Error())
 	}
 
 	if err := app.registerRedis(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering redis: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering redis: %s", err.Error())
 	}
 
 	if err := app.registerRepositories(); err != nil {
-		zap.S().Fatalw("❌ error in registering repositories: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering repositories: %s", err.Error())
 	}
 
 	if err := app.registerETHClient(); err != nil {
-		zap.S().Fatalw("❌ error in registering eth client: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering eth client: %s", err.Error())
 	}
 
 	if err := app.registerServices(); err != nil {
-		zap.S().Fatalw("❌ error in registering services: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering services: %s", err.Error())
 	}
 
 	if err := app.registerAsynqClient(); err != nil {
-		zap.S().Fatalw("❌ error in registering asynq client: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
 	}
 
-	if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumTestnet, configs.App.NetworkStatus); err != nil {
-		zap.S().Fatalw(
-			"❌ Failed to register websocket client. Configuration: address=%s, network_status=%s, error=%s",
-			configs.App.WSClientEthereumTestnet,
-			configs.App.NetworkStatus,
-			err.Error(),
-		)
-	}
+	// TODO : We need this?
+	// if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumMainnet, configs.App.NetworkStatus); err != nil {
+	// 	zap.S().Fatalf(
+	// 		"❌ Failed to register websocket client. Configuration: address=%s, network_status=%s, error=%s",
+	// 		configs.App.WSClientEthereumTestnet,
+	// 		configs.App.NetworkStatus,
+	// 		err.Error(),
+	// 	)
+	// }
 
 	if err := app.registerMailDialer(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering mail dialer: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering mail dialer: %s", err.Error())
 	}
 
 	if err := app.registerCache(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering cache: %s", err.Error())
+		zap.S().Fatalf("❌ error in registering cache: %s", err.Error())
 	}
 
 	return app
@@ -185,7 +184,6 @@ func (app *Application) registerETHClient() error {
 
 	app.ETHClient = httpClient
 	app.ETHWebsocketClient = wsClient
-	zap.S().Infow("ETHClient registered ✅")
 	return nil
 }
 
@@ -218,7 +216,6 @@ func (app *Application) registerWebsocketClient(ctx context.Context, clientUrl s
 		return err
 	}
 	app.WsClient = c
-	zap.S().Infow("Websocket client registered ✅")
 	return nil
 }
 
