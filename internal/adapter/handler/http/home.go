@@ -19,6 +19,7 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 		"1000000000",
 		"0x036CbD53842c5426634e7929541eC2318f3dCF7e",
 		38131927,
+		false,
 	); err != nil {
 		zap.S().Errorf("failed to enqueue transfer event task: %v", err)
 		return err

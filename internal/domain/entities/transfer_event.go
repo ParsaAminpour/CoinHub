@@ -7,15 +7,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// NOTE : related to the transfers that catched onchain, which is related to our users.
 type TransferEvent struct {
-	ID          uint      `gorm:"primaryKey;autoIncrement"`
-	TxHash      string    `gorm:"uniqueIndex;not null"`
-	BlockNumber uint64    `gorm:"not null"`
-	From        string    `gorm:"not null"`
-	To          string    `gorm:"not null"`
-	Amount      string    `gorm:"not null"` // store as string, big.Int doesn't play well with gorm
-	AssetID     uuid.UUID `gorm:"type:uuid;index;not null"`
-	Asset       Asset     `gorm:"foreignKey:AssetID"`
+	ID             uint              `gorm:"primaryKey;autoIncrement"`
+	TxHash         string            `gorm:"uniqueIndex;not null"`
+	BlockNumber    uint64            `gorm:"not null"`
+	From           string            `gorm:"not null"`
+	To             string            `gorm:"not null"`
+	Amount         string            `gorm:"not null"` // store as string, big.Int doesn't play well with gorm
+	AssetID        uuid.UUID         `gorm:"type:uuid;index;not null"`
+	Asset          Asset             `gorm:"foreignKey:AssetID"`
+	TransferStatus TransactionStatus `gorm:"not null"`
 
 	ReceivedAt time.Time `gorm:"autoCreateTime"`
 	CreatedAt  time.Time
@@ -24,22 +26,23 @@ type TransferEvent struct {
 func NewTransferEvent(
 	txHash string,
 	blockNumber uint64,
-	// contractAddress string,
 	assetID uuid.UUID,
 	from string,
 	to string,
 	amount string,
 	tokenSymbol string,
+	transferStatus TransactionStatus,
 	receivedAt time.Time,
 ) *TransferEvent {
 	return &TransferEvent{
-		TxHash:      txHash,
-		BlockNumber: blockNumber,
-		AssetID:     assetID,
-		From:        from,
-		To:          to,
-		Amount:      amount,
-		ReceivedAt:  receivedAt,
+		TxHash:         txHash,
+		BlockNumber:    blockNumber,
+		AssetID:        assetID,
+		From:           from,
+		To:             to,
+		TransferStatus: transferStatus,
+		Amount:         amount,
+		ReceivedAt:     receivedAt,
 	}
 }
 

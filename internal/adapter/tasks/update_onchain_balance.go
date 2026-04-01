@@ -18,18 +18,20 @@ type TransferEventPayload struct {
 	BlockNumber uint64
 	From        string
 	To          string
+	IsRemoved   bool
 	// IsReceiver  bool // the IsReceiver will be determined by the task handler
 	value   string
 	TokenCA string
 	Time    time.Time
 }
 
-func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNumner uint64) (*asynq.Task, error) {
+func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNumner uint64, isRemoved bool) (*asynq.Task, error) {
 	transferEventPayload, err := json.Marshal(TransferEventPayload{
 		TrxHash:     trxHash,
 		BlockNumber: blockNumner,
 		From:        from,
 		To:          to,
+		IsRemoved:   isRemoved,
 		value:       value,
 		TokenCA:     tokenCA,
 		Time:        time.Unix(time.Now().Unix(), 0),
@@ -41,8 +43,8 @@ func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNu
 	return task, nil
 }
 
-func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, trxHash, from, to, value, tokenCA string, blockNumner uint64) error {
-	task, err := RegisterTransferEventTask(trxHash, from, to, value, tokenCA, blockNumner)
+func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, trxHash, from, to, value, tokenCA string, blockNumner uint64, isRemoved bool) error {
+	task, err := RegisterTransferEventTask(trxHash, from, to, value, tokenCA, blockNumner, isRemoved)
 	if err != nil {
 		return err
 	}
@@ -61,6 +63,8 @@ func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, tr
 	return nil
 }
 
+// NOTE: Here we caught up a transaction that is related to our user, now we are going to check the transaction and update its relevant status.
+// TODO : is there any better way to check the transaction status instead of log::Removed?
 func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository, pendingTransactionsCache *cache.PendingTransactionsCache) error {
 	var payload TransferEventPayload
 	err := json.Unmarshal(t.Payload(), &payload)
@@ -107,6 +111,10 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		return fmt.Errorf("asset not found")
 	}
 
+	var transferStatus entities.TransactionStatus = entities.RevertedStatus
+	if !payload.IsRemoved {
+		transferStatus = entities.ConfirmedStatus
+	}
 	transferEvent := entities.NewTransferEvent(
 		payload.TrxHash,
 		payload.BlockNumber,
@@ -115,6 +123,7 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		payload.To,
 		payload.value,
 		*asset.Symbol,
+		transferStatus,
 		payload.Time,
 	)
 	if err := transferEventRepo.Create(ctx, transferEvent); err != nil {

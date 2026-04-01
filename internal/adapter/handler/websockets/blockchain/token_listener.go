@@ -95,6 +95,7 @@ func startEVMTokenBalanceListener(
 		case tLog := <-evmTokenLogs:
 			switch tLog.Topics[0].Hex() {
 			case logTransferSigHash.Hex():
+				zap.S().Infow("the evmTokenLogs", "entireLog", tLog) // remove this log
 				var transferLog token.TokenTransfer
 				if err := tokenContractABI.UnpackIntoInterface(&transferLog, "Transfer", tLog.Data); err != nil {
 					zap.S().Errorw("failed to unpack Transfer event", "error", err, "log", tLog)
@@ -108,7 +109,7 @@ func startEVMTokenBalanceListener(
 					"to", transferLog.To.Hex(),
 					"value", transferLog.Value.String(),
 				)
-				if err := handleTransferHunt(ctx, asynqClient, pendingTransactionsCache, *walletRepo, tLog.TxHash.Hex(), transferLog.From.Hex(), transferLog.To.Hex(), transferLog.Value.String(), tLog.Address.String(), tLog.BlockNumber); err != nil {
+				if err := handleTransferHunt(ctx, asynqClient, pendingTransactionsCache, *walletRepo, tLog.TxHash.Hex(), transferLog.From.Hex(), transferLog.To.Hex(), transferLog.Value.String(), tLog.Address.String(), tLog.BlockNumber, tLog.Removed); err != nil {
 					zap.S().Errorw("handleTransferHunt failed", "error", err)
 				}
 
@@ -127,7 +128,6 @@ func startEVMTokenBalanceListener(
 					"value", approvalLog.Value.String(),
 				)
 			}
-			zap.S().Info("-------------------------------")
 		}
 	}
 }
@@ -140,6 +140,7 @@ func handleTransferHunt(
 	walletRepo repositories.WalletAccountRepository,
 	trxHash, from, to, value, tokenCA string,
 	blockNumner uint64,
+	isRemoved bool,
 ) error {
 	// just check if the transaction is pending in the cache
 	if _, err := pendingTransactionsCache.GetPendingTransaction(ctx, trxHash); err != nil {
@@ -157,5 +158,8 @@ func handleTransferHunt(
 		value,
 		tokenCA,
 		blockNumner,
+		isRemoved,
 	)
 }
+
+func handleApprovalHunt(ctx context.Context) error
