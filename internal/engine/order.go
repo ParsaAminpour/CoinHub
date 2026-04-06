@@ -1,4 +1,4 @@
-package entities
+package engine
 
 import (
 	"time"
@@ -43,4 +43,8 @@ func (o *Order) Remaining() decimal.Decimal {
 
 func (o *Order) IsFilled() bool {
 	return o.Remaining().IsZero()
+}
+
+func (o *Order) ChangeStatusTo(s OrderStatus) {
+	o.Status = s
 }

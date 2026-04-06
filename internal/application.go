@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hibiken/asynq"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
@@ -47,6 +48,8 @@ type Application struct {
 	AsynqClient    *asynq.Client
 	AsynqInspector *asynq.Inspector
 	AsynqServer    *asynq.Server
+
+	MessageBrokerClient *kgo.Client
 
 	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
@@ -85,16 +88,6 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 		zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
 	}
 
-	// TODO : We need this?
-	// if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumMainnet, configs.App.NetworkStatus); err != nil {
-	// 	zap.S().Fatalf(
-	// 		"❌ Failed to register websocket client. Configuration: address=%s, network_status=%s, error=%s",
-	// 		configs.App.WSClientEthereumTestnet,
-	// 		configs.App.NetworkStatus,
-	// 		err.Error(),
-	// 	)
-	// }
-
 	if err := app.registerMailDialer(ctx); err != nil {
 		zap.S().Fatalf("❌ error in registering mail dialer: %s", err.Error())
 	}
@@ -103,7 +96,21 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 		zap.S().Fatalf("❌ error in registering cache: %s", err.Error())
 	}
 
+	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
+	if err := app.registerMessageStreamer(ctx); err != nil {
+		zap.S().Fatalf("❌ error in registering message broker: %s", err.Error())
+	}
 	return app
+}
+
+func (app *Application) registerMessageStreamer(ctx context.Context) error {
+	client, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)))
+	if err != nil {
+		return err
+	}
+	app.MessageBrokerClient = client
+	zap.S().Info("Kafka Message Broker initialized and registered✅")
+	return nil
 }
 
 func (app *Application) registerCache(ctx context.Context) error {

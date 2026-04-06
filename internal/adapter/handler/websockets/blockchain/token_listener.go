@@ -81,16 +81,16 @@ func startEVMTokenBalanceListener(
 	}
 
 	for {
-	RECONNECTING:
 		select {
 		case err := <-sub.Err():
 			zap.S().Errorw("subscription error in EVM token log listener", "error", err)
 			// re-subscribining to the EVM token log listener
-			sub, err = subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
+			reconnectedSub, err := subscribeToEVMTokenLogs(ctx, query, evmTokenLogs, client)
 			if err != nil {
 				zap.S().Errorw("failed to reconnect to EVM token log listener", "error", err)
-				break RECONNECTING
+				continue
 			}
+			sub = reconnectedSub
 			continue
 
 		case tLog := <-evmTokenLogs:

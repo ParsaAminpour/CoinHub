@@ -82,13 +82,24 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	if err := registerTransactionRoutes(r, app); err != nil {
 		return err
 	}
+	if err := registerOrderRoutes(r, app); err != nil {
+		return err
+	}
+	return nil
+}
+
+func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	orderGroup := r.Group("/order")
+	orderGroup.Use(security.AuthMiddleware())
+	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, app))
+	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, app))
+	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, app))
 	return nil
 }
 
 func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	userGroup := r.Group("/user")
 	userGroup.Use(security.AuthMiddleware())
-
 	return nil
 }
 

@@ -37,6 +37,9 @@ type Asset struct {
 	Network             AssetNetwork    `json:"network" gorm:"default:testnet"`
 	TransferEvents      []TransferEvent `json:"transfer_event" gorm:"foreignKey:AssetID"`
 
+	// balance table has one relationship with Asset
+	BalanceID uuid.UUID `gorm:"type:uuid;index;not null"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
