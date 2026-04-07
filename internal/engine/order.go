@@ -41,10 +41,19 @@ func (o *Order) Remaining() decimal.Decimal {
 	return o.Quantity.Sub(o.Filled)
 }
 
+func (o *Order) IsPartial() bool {
+	return !o.Remaining().IsZero()
+}
+
 func (o *Order) IsFilled() bool {
 	return o.Remaining().IsZero()
 }
 
 func (o *Order) ChangeStatusTo(s OrderStatus) {
 	o.Status = s
+}
+
+func (o *Order) AddToFilled(qty decimal.Decimal) {
+	o.Filled.Add(qty)
+	o.ChangeStatusTo(StatusPartial)
 }

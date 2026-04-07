@@ -1,11 +1,13 @@
 package internal
 
 import (
+	"coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/adapter/repository/cache"
 	repository "coinhub/internal/adapter/repository/postgres"
 	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/domain/services"
+	"coinhub/internal/engine"
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/database"
 	"context"
@@ -49,12 +51,17 @@ type Application struct {
 	AsynqInspector *asynq.Inspector
 	AsynqServer    *asynq.Server
 
-	MessageBrokerClient *kgo.Client
+	// Message Broker configuration
+	OrderEventProducer *kafka.OrderEventProducer
+	OrderEventConsumer *kafka.OrderEventConsumer
 
 	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
 	AuthGmailCache           *cache.AuthGmailCache
 	PendingTransactionsCache *cache.PendingTransactionsCache
+
+	// Matching Engine setup
+	OrderMatchEngine *engine.MatchEngine
 }
 
 func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
@@ -97,18 +104,33 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	}
 
 	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
+	if err := app.registerMatchEngine(); err != nil {
+		zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
+	}
+
 	if err := app.registerMessageStreamer(ctx); err != nil {
 		zap.S().Fatalf("❌ error in registering message broker: %s", err.Error())
 	}
 	return app
 }
 
+func (app *Application) registerMatchEngine() error {
+	app.OrderMatchEngine = engine.NewMatchEngine().(*engine.MatchEngine)
+	return nil
+}
+
 func (app *Application) registerMessageStreamer(ctx context.Context) error {
-	client, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)))
+	producerClient, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)))
 	if err != nil {
 		return err
 	}
-	app.MessageBrokerClient = client
+	consumerClient, err := kgo.NewClient(
+		kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)),
+		kgo.ConsumeTopics(kafka.CoinHubFilledOrderEventTopic("test")), // TODO : change this based on the pair
+		kgo.ConsumerGroup(kafka.ConsumerGroup),
+	)
+	app.OrderEventProducer = kafka.NewOrderEventProducer(ctx, producerClient)
+	app.OrderEventConsumer = kafka.NewOrderEventConsumer(ctx, consumerClient)
 	zap.S().Info("Kafka Message Broker initialized and registered✅")
 	return nil
 }

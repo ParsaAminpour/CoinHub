@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 type OrderType string
@@ -25,6 +26,7 @@ const (
 )
 
 type Order struct {
+	gorm.Model
 	ID        string
 	UserID    string
 	Pair      string // "BTC/USDT"

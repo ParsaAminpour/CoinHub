@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/shopspring/decimal"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 )
 
@@ -89,6 +91,10 @@ func (s *Side) PopFront() {
 	}
 }
 
+func (s *PriceLevel) RemoveFilledOrderInPriceLevel(side OrderSide, idx int) {
+	s.Orders = append(s.Orders[:idx], s.Orders[idx+1:]...)
+}
+
 // Asks → lowest price at index 0 (best ask = cheapest seller)
 // Bids → highest price at index 0 (best bid = most generous buyer)
 // index 0 id always the best price
@@ -113,8 +119,6 @@ func (ob *Orderbook) MatchLimit(incomingOrder Order) error {
 					continue // go to the next best order
 				}
 				fillQty := decimal.Min(bestOrder.Remaining(), incomingOrder.Remaining())
-				bestOrder.Filled.Add(fillQty)
-				incomingOrder.Filled.Add(fillQty)
 				if !fillQty.IsZero() {
 					bestOrder.ChangeStatusTo(StatusPartial)
 					incomingOrder.ChangeStatusTo(StatusPartial)
@@ -131,6 +135,8 @@ func (ob *Orderbook) MatchLimit(incomingOrder Order) error {
 						"remaining_qty", incomingOrder.Remaining().String(),
 					)
 				}
+				bestOrder.Filled.Add(fillQty)
+				incomingOrder.Filled.Add(fillQty)
 
 				if bestOrder.Remaining().IsZero() || bestOrder.Remaining().LessThanOrEqual(ob.Dust) {
 					// remove that best order from the queue
@@ -215,7 +221,81 @@ func (ob *Orderbook) MatchLimit(incomingOrder Order) error {
 }
 
 // TODO : implement it
-func (ob *Orderbook) MatchMarket(o Order) error
+// the price of incomingOrder is going to be the market price, not choosen by the ow
+func (ob *Orderbook) MatchMarket(incomingOrder Order, kafkaClient *kgo.Client) error {
+	if incomingOrder.Side == SideBuy {
+		if len(ob.Asks.Levels) == 0 {
+			return fmt.Errorf("the orderbook is empty!")
+		}
+		for _, priceLeve := range ob.Asks.Levels {
+			if priceLeve.PriceLevel.LessThanOrEqual(incomingOrder.Price) {
+				for idx, order := range priceLeve.Orders {
+					if order.ID == incomingOrder.ID {
+						continue
+					}
+					fillQty := decimal.Min(order.Remaining(), incomingOrder.Remaining())
+					order.Filled.Add(fillQty)
+					incomingOrder.Filled.Add(fillQty)
+
+					order.ChangeStatusTo(StatusPartial)
+					incomingOrder.ChangeStatusTo(StatusPartial)
+
+					if order.IsFilled() || order.Remaining().LessThanOrEqual(ob.Dust) {
+						// remove that order from the queue and emit the filled event
+						priceLeve.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
+						// emit the filled event
+					}
+					if incomingOrder.IsFilled() || incomingOrder.Remaining().LessThanOrEqual(ob.Dust) {
+						// emit the filled event
+					} else {
+						continue
+					}
+
+				}
+
+			} else {
+				// There are two scenario:
+				// 1. the incoming market order is partially filled but there is no match in the other side, so the order should be revert! -> order get partial tag and the we ignore the remaining for the incoming order!
+
+				// 2. we don't have an appropriate order to match with the incoming market order! and order get cancelled tag.
+				break
+			}
+		}
+	} else {
+		if len(ob.Bids.Levels) == 0 {
+			return fmt.Errorf("the orderbook in opposite side is empty!")
+		}
+		for idx, priceLevel := range ob.Bids.Levels {
+			if priceLevel.PriceLevel.GreaterThanOrEqual(incomingOrder.Price) {
+				for _, order := range priceLevel.Orders {
+					// This fillQty is not going to be a Dust!
+					fillQty := decimal.Min(order.Remaining(), incomingOrder.Remaining())
+					order.AddToFilled(fillQty)
+					incomingOrder.AddToFilled(fillQty)
+
+					if order.IsFilled() || order.Remaining().LessThanOrEqual(ob.Dust) {
+						priceLevel.RemoveFilledOrderInPriceLevel(SideBuy, idx)
+						// emit the filled event for the resting order
+					} else if order.IsPartial() {
+						// emit the partial event for the resting order
+					}
+					if incomingOrder.IsFilled() || incomingOrder.Remaining().LessThanOrEqual(ob.Dust) {
+						// emit the filled event for the resting order
+					} else if incomingOrder.IsPartial() {
+						// emit the partial event for the incoming order
+					}
+				}
+			} else {
+				// There are two scenario:
+				// 1. the incoming market order is partially filled but there is no match in the other side, so the order should be revert! -> order get partial tag and the we ignore the remaining for the incoming order!
+
+				// 2. we don't have an appropriate order to match with the incoming market order! and order get cancelled tag.
+				break
+			}
+		}
+	}
+	return nil
+}
 
 // TODO : implement it
-func (ob *Orderbook) Cancel(o Order) error
+func (ob *Orderbook) Cancel(incomingOrder Order) error
