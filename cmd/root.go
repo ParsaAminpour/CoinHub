@@ -50,6 +50,8 @@ func init() {
 	rootCmd.AddCommand(RunWorker(&configs.C))
 	rootCmd.AddCommand(RunOnchainWatcher(&configs.C))
 	rootCmd.AddCommand(RunOrderMatchEngine(&configs.C))
+	rootCmd.AddCommand(RunOrderProjectionConsumer(&configs.C))
+	rootCmd.AddCommand(RunNotificationConsumer(&configs.C))
 }
 
 func Execute() {

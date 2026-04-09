@@ -40,7 +40,9 @@ func (me *MatchEngine) SubmitOrder(order Order) error {
 }
 
 // TODO : add this to the flow
-func (me *MatchEngine) OrderRouter(order Order) error
+func (me *MatchEngine) OrderRouter(order Order) error {
+	return nil
+}
 
 func (me *MatchEngine) OrderDispatcher(kafkaClient *kgo.Client) error {
 	// runs for each pair
@@ -49,15 +51,15 @@ func (me *MatchEngine) OrderDispatcher(kafkaClient *kgo.Client) error {
 	for incomingOrder := range me.OrderChan {
 		switch incomingOrder.Type {
 		case OrderTypeMarket:
-			if err := me.Orderbook.MatchMarket(incomingOrder, kafkaClient); err != nil {
+			if _, err := me.Orderbook.MatchMarket(incomingOrder, kafkaClient); err != nil {
 				continue
 			}
 		case OrderTypeLimit:
-			if err := me.Orderbook.MatchLimit(incomingOrder); err != nil {
+			if _, err := me.Orderbook.MatchLimit(nil, incomingOrder); err != nil {
 				continue
 			}
 		case OrderTypeCancel:
-			if err := me.Orderbook.Cancel(incomingOrder); err != nil {
+			if _, err := me.Orderbook.Cancel(incomingOrder); err != nil {
 				continue
 			}
 		}

@@ -34,6 +34,7 @@ type Application struct {
 	TransactinRepository    repositories.EVMTransactionRepository
 	TransferRepository      repositories.TransferEventRepository
 	AssetRepository         repositories.AssetRepository
+	OrderRepository         repositories.OrderRepository
 	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
@@ -53,7 +54,7 @@ type Application struct {
 
 	// Message Broker configuration
 	OrderEventProducer *kafka.OrderEventProducer
-	OrderEventConsumer *kafka.OrderEventConsumer
+	OrderEventConsumer *kafka.OrderEventConsumer // we don't need this
 
 	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
@@ -124,13 +125,13 @@ func (app *Application) registerMessageStreamer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	consumerClient, err := kgo.NewClient(
-		kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)),
-		kgo.ConsumeTopics(kafka.CoinHubFilledOrderEventTopic("test")), // TODO : change this based on the pair
-		kgo.ConsumerGroup(kafka.ConsumerGroup),
-	)
+	// consumerClient, err := kgo.NewClient(
+	// 	kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)),
+	// 	kgo.ConsumeTopics(kafka.CoinHubOrderStatusTopic("BTC.USDT")), // TODO : configure per pair and consumer role
+	// 	kgo.ConsumerGroup(kafka.OrderPrjectionConsumerGroupID),
+	// )
 	app.OrderEventProducer = kafka.NewOrderEventProducer(ctx, producerClient)
-	app.OrderEventConsumer = kafka.NewOrderEventConsumer(ctx, consumerClient)
+	// app.OrderEventConsumer = kafka.NewOrderEventConsumer(ctx, consumerClient)
 	zap.S().Info("Kafka Message Broker initialized and registered✅")
 	return nil
 }
@@ -166,6 +167,7 @@ func (app *Application) registerRepositories() error {
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)
 	app.AssetRepository = repository.NewAssetRepository(app.MySqlGorm)
+	app.OrderRepository = repository.NewOrderRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	zap.S().Infow("Repositories registered ✅")
 	return nil

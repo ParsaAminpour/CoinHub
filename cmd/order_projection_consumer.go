@@ -1,0 +1,102 @@
+package cmd
+
+import (
+	"coinhub/internal"
+	"coinhub/internal/adapter/messaging/kafka"
+	adapterkafka "coinhub/internal/adapter/messaging/kafka"
+	"coinhub/internal/infrastructure/configs"
+	kafkaconsumer "coinhub/internal/infrastructure/kafka/consumer"
+	"coinhub/internal/usecases/order_event_usecases"
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"go.uber.org/zap"
+)
+
+func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
+	var pair string
+	var groupID string
+	var eventType string
+	cmd := &cobra.Command{
+		Use:   "order-projection-consumer",
+		Short: "Run order projection Kafka consumer",
+		Long:  "Run order projection Kafka consumer",
+		Run: func(cmd *cobra.Command, args []string) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			app := internal.NewApplication(ctx, configs)
+			topic := adapterkafka.CoinhubEventDispatcher(kafka.EventType(eventType), pair)
+			dlqTopic := fmt.Sprintf("%s.dlq", topic)
+			zap.S().Infow("projection consumer subscribing", "topic", topic, "group_id", groupID)
+			consumerClient, err := kgo.NewClient(
+				kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
+				kgo.ConsumeTopics(topic),
+				kgo.ConsumerGroup(groupID),
+				kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+			)
+			if err != nil {
+				zap.S().Fatalw("failed to create projection consumer client", "error", err)
+			}
+			defer consumerClient.Close()
+
+			// for handling the death letter queue.
+			dlqProducerClient, err := kgo.NewClient(
+				kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
+			)
+			if err != nil {
+				zap.S().Fatalw("failed to create projection dlq producer client", "error", err)
+			}
+			defer dlqProducerClient.Close()
+
+			deduper, ok := app.OrderRepository.(interface {
+				MarkEventProcessed(ctx context.Context, consumerName string, eventID string) (bool, error)
+			})
+			if !ok {
+				zap.S().Fatal("order repository does not support idempotent event handling")
+			}
+
+			handler := &order_event_usecases.ProjectionHandler{
+				OrderRepository: app.OrderRepository,
+				Deduper:         deduper,
+				ConsumerName:    groupID,
+			}
+			runner := kafkaconsumer.NewRunner(
+				consumerClient,
+				func(handlerCtx context.Context, event adapterkafka.OrderStatusEvent, record *kgo.Record) error {
+					if err := order_event_usecases.ValidateStatusEvent(event); err != nil {
+						return err
+					}
+					return handler.Handle(handlerCtx, event, record)
+				},
+				groupID,
+				3,
+				2*time.Second,
+			).WithDLQ(dlqProducerClient, dlqTopic)
+
+			closeSignal := make(chan os.Signal, 1)
+			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
+			defer signal.Stop(closeSignal)
+
+			go func() {
+				sig := <-closeSignal
+				zap.S().Infow("projection consumer shutting down", "signal", sig.String())
+				cancel()
+			}()
+
+			if err := runner.Run(ctx); err != nil {
+				zap.S().Fatalw("projection consumer stopped with error", "error", err)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&pair, "pair", "BTC.USDT", "trading pair topic suffix")
+	cmd.Flags().StringVar(&groupID, "group-id", kafka.OrderPrjectionConsumerGroupID, "kafka consumer group id")
+	cmd.Flags().StringVar(&eventType, "event-type", string(kafka.EventOrderFilled), "type of order event to consume (e.g., ORDER_PLACED, ORDER_FILLED, ORDER_PARTIAL_FILLED, etc.)")
+	return cmd
+}
