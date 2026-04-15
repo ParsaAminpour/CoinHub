@@ -22,7 +22,7 @@ import (
 func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 	var pair string
 	var groupID string
-	var eventType string
+	var enableDLQ bool
 	cmd := &cobra.Command{
 		Use:   "order-projection-consumer",
 		Short: "Run order projection Kafka consumer",
@@ -32,12 +32,20 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 			defer cancel()
 
 			app := internal.NewApplication(ctx, configs)
-			topic := adapterkafka.CoinhubEventDispatcher(kafka.EventType(eventType), pair)
-			dlqTopic := fmt.Sprintf("%s.dlq", topic)
-			zap.S().Infow("projection consumer subscribing", "topic", topic, "group_id", groupID)
+			selectedTopics := adapterkafka.CoinhubAllTopicsByEventTypes([]adapterkafka.EventType{
+				adapterkafka.EventOrderPlaced,
+				adapterkafka.EventOrderFilled,
+				adapterkafka.EventOrderPartial,
+				adapterkafka.EventOrderStatus,
+				adapterkafka.EventOrderCanceled,
+				adapterkafka.EventOrderExpired,
+				adapterkafka.EventTradeExecuted,
+			}, "")
+
+			zap.S().Infow("projection consumer subscribing", "topic", selectedTopics, "group_id", groupID)
 			consumerClient, err := kgo.NewClient(
 				kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
-				kgo.ConsumeTopics(topic),
+				kgo.ConsumeTopics(selectedTopics...),
 				kgo.ConsumerGroup(groupID),
 				kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 			)
@@ -45,15 +53,6 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 				zap.S().Fatalw("failed to create projection consumer client", "error", err)
 			}
 			defer consumerClient.Close()
-
-			// for handling the death letter queue.
-			dlqProducerClient, err := kgo.NewClient(
-				kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
-			)
-			if err != nil {
-				zap.S().Fatalw("failed to create projection dlq producer client", "error", err)
-			}
-			defer dlqProducerClient.Close()
 
 			deduper, ok := app.OrderRepository.(interface {
 				MarkEventProcessed(ctx context.Context, consumerName string, eventID string) (bool, error)
@@ -78,7 +77,19 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 				groupID,
 				3,
 				2*time.Second,
-			).WithDLQ(dlqProducerClient, dlqTopic)
+			)
+			if enableDLQ {
+				dlqTopic := "order-projection-consumer.dlq"
+				dlqProducerClient, dlqErr := kgo.NewClient(
+					kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
+				)
+				if dlqErr != nil {
+					zap.S().Fatalw("failed to create projection dlq producer client", "error", dlqErr)
+				}
+				defer dlqProducerClient.Close()
+				runner = runner.WithDLQ(dlqProducerClient, dlqTopic)
+				zap.S().Infow("DLQ enabled for projection consumer", "dlq_topic", "order-projection-consumer.dlq")
+			}
 
 			closeSignal := make(chan os.Signal, 1)
 			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
@@ -97,6 +108,6 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&pair, "pair", "BTC.USDT", "trading pair topic suffix")
 	cmd.Flags().StringVar(&groupID, "group-id", kafka.OrderPrjectionConsumerGroupID, "kafka consumer group id")
-	cmd.Flags().StringVar(&eventType, "event-type", string(kafka.EventOrderFilled), "type of order event to consume (e.g., ORDER_PLACED, ORDER_FILLED, ORDER_PARTIAL_FILLED, etc.)")
+	cmd.Flags().BoolVar(&enableDLQ, "enable-dlq", false, "enable dead-letter queue publishing to order-projection-consumer.dlq")
 	return cmd
 }

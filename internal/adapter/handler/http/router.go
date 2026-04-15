@@ -2,8 +2,10 @@ package http
 
 import (
 	"coinhub/internal"
+	"coinhub/internal/adapter/handler/http/helper"
 	"coinhub/internal/adapter/handler/http/schema"
 	"coinhub/internal/infrastructure/security"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -88,6 +90,7 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	return nil
 }
 
+// TODO : don't pass the entire application structure to the HTTP handlers!
 func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	orderGroup := r.Group("/order")
 	orderGroup.Use(security.AuthMiddleware())
@@ -110,6 +113,19 @@ func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, app))
 	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, app))
 	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, app))
+	authGroup.POST("/mock/login", apiPostHandler(func(c *gin.Context, app *internal.Application) error {
+		responseHelper := helper.NewResponseHelper()
+		jwtToken, err := security.GenerateToken("parsa") // TODO : remove this
+		if err != nil {
+			return err
+		}
+		responseHelper.SuccessStandard(c, schema.LoginUserResponse{
+			Code:     http.StatusOK,
+			Message:  "user logged in with username successfully",
+			JWTToken: jwtToken,
+		})
+		return nil
+	}, app))
 	return nil
 }
 

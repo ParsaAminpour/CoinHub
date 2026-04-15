@@ -17,3 +17,7 @@ func NewOrderEventConsumer(ctx context.Context, client *kgo.Client) *OrderEventC
 		consumer: client,
 	}
 }
+
+func (oec *OrderEventConsumer) GetConsumer() *kgo.Client {
+	return oec.consumer
+}

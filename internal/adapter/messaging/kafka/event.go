@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,31 +11,40 @@ import (
 
 const (
 	OrderPrjectionConsumerGroupID string = "order-projection-consumer-v1"
+	OrderSubmittedConsumerGroupID string = "order-submitted-consumer-v1"
 )
 
 type OrderEventTopic func(metadata string) string
 
+// TODO : Remove metadata if we don't need it, we don't need it for now.
 var (
+	CoinhubOpenOrderEventTopic OrderEventTopic = func(metadata string) string {
+		return "coinhub.order.open"
+	}
 	CoinHubFilledOrderEventTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.filled.%s", metadata) // e.g. coinhub.order.filled.BTC/USDT
+		return "coinhub.order.filled"
 	}
 	CoinhubPartialOrderEventTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.partial.%s", metadata)
+		return "coinhub.order.partial"
 	}
 	CoinHubOrderStatusTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.status.%s", metadata)
+		return "coinhub.order.status"
+	}
+	// just use in the engine process.
+	CoinHubOrderSubmittedTopic OrderEventTopic = func(metadata string) string {
+		return "coinhub.order.submitted"
 	}
 	CoinHubOrderPlacedTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.placed.%s", metadata)
+		return "coinhub.order.placed"
 	}
 	CoinHubOrderCanceledTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.canceled.%s", metadata)
+		return "coinhub.order.canceled"
 	}
 	CoinHubOrderExpiredTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.order.expired.%s", metadata)
+		return "coinhub.order.expired"
 	}
 	CoinHubTradeExecutedTopic OrderEventTopic = func(metadata string) string {
-		return fmt.Sprintf("coinhub.trade.executed.%s", metadata)
+		return "coinhub.trade.executed"
 	}
 
 	CoinhubEventDispatcher = func(eventType EventType, metadata string) string {
@@ -47,6 +55,8 @@ var (
 			return CoinHubFilledOrderEventTopic(metadata)
 		case EventOrderStatus:
 			return CoinHubOrderStatusTopic(metadata)
+		case EventOrderSubmitted:
+			return CoinHubOrderSubmittedTopic(metadata)
 		case EventOrderPlaced:
 			return CoinHubOrderPlacedTopic(metadata)
 		case EventOrderCanceled:
@@ -59,19 +69,42 @@ var (
 			return CoinHubOrderStatusTopic(metadata)
 		}
 	}
+
+	CoinhubAllTopicsByEventTypes = func(eventTypes []EventType, metadata string) []string {
+		var topics []string
+		for _, e := range eventTypes {
+			topics = append(topics, CoinhubEventDispatcher(e, metadata))
+		}
+		return topics
+	}
+
+	CoinhubAllCurrentTopics = func() []string {
+		return []string{
+			CoinhubOpenOrderEventTopic(""),
+			CoinHubFilledOrderEventTopic(""),
+			CoinhubPartialOrderEventTopic(""),
+			CoinHubOrderStatusTopic(""),
+			CoinHubOrderSubmittedTopic(""),
+			CoinHubOrderPlacedTopic(""),
+			CoinHubOrderCanceledTopic(""),
+			CoinHubOrderExpiredTopic(""),
+			CoinHubTradeExecutedTopic(""),
+		}
+	}
 )
 
 // EventType identifies what happened
 type EventType string
 
 const (
-	EventOrderPlaced   EventType = "ORDER_PLACED" // open
-	EventOrderFilled   EventType = "ORDER_FILLED"
-	EventOrderPartial  EventType = "ORDER_PARTIAL_FILLED"
-	EventOrderStatus   EventType = "ORDER_STATUS_CHANGED" // do we need this?
-	EventOrderCanceled EventType = "ORDER_CANCELED"
-	EventOrderExpired  EventType = "ORDER_EXPIRED"
-	EventTradeExecuted EventType = "TRADE_EXECUTED" // is emitted once per match iteration
+	EventOrderSubmitted EventType = "ORDER_SUBMITTED" // API accepted order for engine processing
+	EventOrderPlaced    EventType = "ORDER_PLACED"    // open, trigger when http endpoint calls
+	EventOrderFilled    EventType = "ORDER_FILLED"
+	EventOrderPartial   EventType = "ORDER_PARTIAL_FILLED"
+	EventOrderStatus    EventType = "ORDER_STATUS_CHANGED" // do we need this?
+	EventOrderCanceled  EventType = "ORDER_CANCELED"
+	EventOrderExpired   EventType = "ORDER_EXPIRED"
+	EventTradeExecuted  EventType = "TRADE_EXECUTED" // is emitted once per match iteration
 )
 
 // EventHeader is embedded in every event — routing + tracing metadata

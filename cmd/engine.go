@@ -31,25 +31,25 @@ func RunOrderMatchEngine(configs *configs.Configuration) *cobra.Command {
 		Short: "Order Match Engine V1",
 		Long:  "Orderbook Match Engine based on Price-Time Priority",
 		Run: func(cmd *cobra.Command, args []string) {
+			wg := sync.WaitGroup{}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			wg := sync.WaitGroup{}
+			// the match engine initialized in here
 			app := internal.NewApplication(ctx, configs)
+
+			closeSignal := make(chan os.Signal, 1)
+			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
+			defer signal.Stop(closeSignal)
 
 			// The processese that will run in this handler:
 			// - We run engine for each pair (each engine has their own orderbook)
 			// - Each pair have their own engine and run Match algorithm for each incoming orders comes to order channel - it's prevent Cancel race condition.
 			// - The engine will emit an even after it can match two sides to the event streamer (Kafka or just a buferred channel)
 			// - The consumer will take the event and update the DB and notify the userID client via socket.
-			if err := engine.SetupMatchEngine(ctx, app.AssetRepository); err != nil {
+			if err := engine.SetupMatchEngine(ctx, &wg, app.OrderEventProducer, app.AssetRepository, app.OrderRepository, app.OrderMatchEngine); err != nil {
 				zap.S().Fatalw("an error occurred in match engine", "error", err)
 			}
-			zap.S().Infow("Engine is running...")
-
-			closeSignal := make(chan os.Signal, 1)
-			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
-			defer signal.Stop(closeSignal)
 
 			select {
 			case sig := <-closeSignal:
@@ -58,6 +58,7 @@ func RunOrderMatchEngine(configs *configs.Configuration) *cobra.Command {
 			case <-ctx.Done():
 				zap.S().Info("terminating by context cancellation")
 			}
+			zap.S().Infow("Engine is running...")
 			wg.Wait()
 			zap.S().Debug("shutdown complete")
 		},

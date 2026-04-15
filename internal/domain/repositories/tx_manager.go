@@ -7,6 +7,7 @@ import (
 type Tx interface {
 	Users() UserRepository
 	Wallets() WalletAccountRepository
+	Orders() OrderRepository
 	// other repositories will register here if it needed..
 }
 

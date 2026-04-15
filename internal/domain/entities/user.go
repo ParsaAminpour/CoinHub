@@ -38,8 +38,9 @@ type User struct {
 	WalletAccount WalletAccount  `gorm:"foreignKey:UserID"`
 	AssetBalances []AssetBalance `gorm:"foreignKey:UserID"`
 
-	// One-to-many relationship: a user can have many EVM transactions
+	// One-to-many relationship
 	EVMTransactions []EvmTransaction `gorm:"foreignKey:UserID"`
+	Orders          []Order          `gorm:"foreignKey:UserID"`
 
 	Status        Status  `gorm:"type:varchar(20);default:'active';not null"`
 	IsVerified    bool    `gorm:"default:false;not null"` // when the gmail becomes verified

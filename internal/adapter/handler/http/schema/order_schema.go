@@ -15,7 +15,7 @@ type PlaceOrderRequest struct {
 	ClientOrdID string      `json:"client_ord_id" validate:"required,max=36,client_ord_id"`
 	Symbol      string      `json:"symbol"        validate:"required,symbol_format"`
 	Side        Side        `json:"side"          validate:"required,oneof=BUY SELL"`
-	OrdType     OrdType     `json:"ord_type"      validate:"required,oneof=LIMIT MARKET STOP_LIMIT IOC FOK POST_ONLY"`
+	OrderType   OrdType     `json:"ord_type"      validate:"required,oneof=LIMIT MARKET STOP_LIMIT IOC FOK POST_ONLY"`
 	Price       string      `json:"price"         validate:"omitempty,decimal_gt0"`
 	StopPrice   string      `json:"stop_price"    validate:"omitempty,decimal_gt0"`
 	Qty         string      `json:"qty"           validate:"required,decimal_gt0"`
@@ -85,7 +85,7 @@ func validatePlaceOrderRequest(sl validator.StructLevel) {
 		return
 	}
 
-	switch req.OrdType {
+	switch req.OrderType {
 	case Limit, PostOnly:
 		if strings.TrimSpace(req.Price) == "" {
 			sl.ReportError(req.Price, "price", "Price", "price_required_for_limit", "")

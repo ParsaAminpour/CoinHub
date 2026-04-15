@@ -37,6 +37,27 @@ type Order struct {
 	Timestamp time.Time
 }
 
+func NewOrder(
+	userID string,
+	pair string,
+	orderType OrderType,
+	side OrderSide,
+	price decimal.Decimal,
+	quantity decimal.Decimal,
+) *Order {
+	return &Order{
+		UserID:    userID,
+		Pair:      pair,
+		Type:      orderType,
+		Side:      side,
+		Price:     price,
+		Quantity:  quantity,
+		Filled:    decimal.Zero,
+		Status:    StatusOpen,
+		Timestamp: time.Now(),
+	}
+}
+
 func (o *Order) Remaining() decimal.Decimal {
 	return o.Quantity.Sub(o.Filled)
 }

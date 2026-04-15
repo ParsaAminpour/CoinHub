@@ -26,6 +26,10 @@ func NewPriceLevel(orders []*Order, price decimal.Decimal) *PriceLevel {
 	}
 }
 
+func (pl *PriceLevel) BestOrderInPriceLevel() (*Order, error) {
+	return pl.Orders[len(pl.Orders)], nil
+}
+
 type Side struct {
 	// The last order of the slice has the lowest price level
 	Levels []*PriceLevel // could be bids or asks

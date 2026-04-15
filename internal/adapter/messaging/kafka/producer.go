@@ -21,14 +21,14 @@ func NewOrderEventProducer(ctx context.Context, kafkaClient *kgo.Client) *OrderE
 	}
 }
 
-func (oep *OrderEventProducer) PublishOrderEvent(event OrderEvent) error {
+func (oep *OrderEventProducer) publishOrderEvent(event OrderEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 
 	topic := CoinhubEventDispatcher(event.GetEventHeader().EventType, event.GetSymbol())
-	zap.S().Infow("the topci in producer", "topic", topic)
+	zap.S().Infow("the topic in producer", "topic", topic)
 	record := &kgo.Record{
 		Topic: topic,
 		Key:   []byte(fmt.Sprintf("%s", event.GetOrderID())),
@@ -40,6 +40,13 @@ func (oep *OrderEventProducer) PublishOrderEvent(event OrderEvent) error {
 		},
 	}
 	if err := oep.producer.ProduceSync(oep.ctx, record).FirstErr(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (oep *OrderEventProducer) PublishOrderEvent(event OrderEvent) error {
+	if err := oep.publishOrderEvent(event); err != nil {
 		return err
 	}
 	return nil

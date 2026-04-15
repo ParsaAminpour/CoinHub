@@ -18,6 +18,14 @@ func NewAssetRepository(db *gorm.DB) repositories.AssetRepository {
 	return &AssetRepository{db: db}
 }
 
+func (ass *AssetRepository) GetAvailableAssetsCount(ctx context.Context) (int, error) {
+	var count int64
+	if err := ass.db.Model(&entities.Asset{}).Where("status = ?", entities.AssetStatusActive).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
 func (ass *AssetRepository) GetAvailableAssets(ctx context.Context) ([]entities.Asset, error) {
 	var availableAssets []entities.Asset
 	if err := ass.db.Model(&entities.Asset{}).Where("status = ?", entities.AssetStatusActive).Find(&availableAssets).Error; err != nil {

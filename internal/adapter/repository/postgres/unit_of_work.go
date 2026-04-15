@@ -21,6 +21,7 @@ func (uow GormUnitOfWork) WithinTransaction(ctx context.Context, handler func(ct
 		tx := &txContext{
 			userRepo:   NewUserRepository(_tx),
 			walletRepo: NewWalletRepository(_tx),
+			orederRepo: NewOrderRepository(_tx),
 		}
 		return handler(ctx, tx)
 	})
@@ -30,7 +31,9 @@ func (uow GormUnitOfWork) WithinTransaction(ctx context.Context, handler func(ct
 type txContext struct {
 	userRepo   repositories.UserRepository
 	walletRepo repositories.WalletAccountRepository
+	orederRepo repositories.OrderRepository
 }
 
 func (t *txContext) Users() repositories.UserRepository            { return t.userRepo }
 func (t *txContext) Wallets() repositories.WalletAccountRepository { return t.walletRepo }
+func (t *txContext) Orders() repositories.OrderRepository          { return t.orederRepo }

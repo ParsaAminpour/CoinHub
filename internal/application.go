@@ -61,7 +61,7 @@ type Application struct {
 	AuthGmailCache           *cache.AuthGmailCache
 	PendingTransactionsCache *cache.PendingTransactionsCache
 
-	// Matching Engine setup
+	// Matching Engine setup, Match Engine should be in a separated service indeed.
 	OrderMatchEngine *engine.MatchEngine
 }
 
@@ -105,7 +105,7 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	}
 
 	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
-	if err := app.registerMatchEngine(); err != nil {
+	if err := app.registerMatchEngine(ctx, *app.Configs); err != nil {
 		zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
 	}
 
@@ -115,8 +115,8 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	return app
 }
 
-func (app *Application) registerMatchEngine() error {
-	app.OrderMatchEngine = engine.NewMatchEngine().(*engine.MatchEngine)
+func (app *Application) registerMatchEngine(ctx context.Context, configs configs.Configuration) error {
+	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs).(*engine.MatchEngine)
 	return nil
 }
 

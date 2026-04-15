@@ -55,11 +55,20 @@ func (h *ProjectionHandler) Handle(ctx context.Context, event kafka.OrderStatusE
 	return nil
 }
 
+func (h *ProjectionHandler) HandleIncmingOrder(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
+	// mark event as proceed.
+
+	// route the order based on its pais to the associated engine.
+	return nil
+}
+
+// ====== Order Notification Event Use Cases Handlers ======
 type NotificationHandler struct {
 	Deduper      EventDeduper
 	ConsumerName string
 }
 
+// for notification handler.
 func (h *NotificationHandler) Handle(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
 	if event.EventID == "" {
 		return errors.New("missing event_id")
