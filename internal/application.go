@@ -124,6 +124,10 @@ func (app *Application) Shutdown() {
 	if app.OrderMatchEngine != nil {
 		app.OrderMatchEngine.Close()
 	}
+	if app.OrderEventConsumer != nil {
+		app.OrderEventConsumer.Close()
+	}
+	zap.S().Info("The application shutted down!")
 }
 
 func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepository repositories.TradingPairRepository, configs configs.Configuration) error {

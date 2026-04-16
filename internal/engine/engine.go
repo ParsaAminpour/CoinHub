@@ -33,7 +33,7 @@ type Engine interface {
 	Run(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepository *repositories.AssetRepository, orderRepository *repositories.OrderRepository, configs configs.Configuration) error
 	orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, configs configs.Configuration, workerID string) error
 	SubmitOrder(eventProducer *kafka.OrderEventProducer, order Order) error
-	orderHandlerWorker(ctx context.Context, pair string, ch chan *Order)
+	orderHandlerWorker(ctx context.Context, eventProducer *kafka.OrderEventProducer, pair string, ch chan *Order)
 	TradeChConsumer(ctx context.Context) error
 	Close()
 	// OrderDispatcher(ctx context.Context, kafkaClient *kafka.OrderEventProducer, order *Order) error
@@ -184,7 +184,6 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.OrderEventProducer, inco
 
 func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.OrderEventProducer, order Order) error {
 	var err error
-	// var tradeCh <-chan Trade
 	switch order.Type {
 	case OrderTypeLimit:
 		_, err = me.Orderbook.MatchLimit(eventProducer, order)
@@ -193,12 +192,11 @@ func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.OrderEventProducer, 
 	case OrderTypeCancel:
 		_, err = me.Orderbook.Cancel(order)
 	}
-	// handle the tradeCh
 	return err
 }
 
 // run this concurrently for each pair
-func (me *MatchEngine) orderHandlerWorker(ctx context.Context, pair string, ch chan *Order) {
+func (me *MatchEngine) orderHandlerWorker(ctx context.Context, eventProducer *kafka.OrderEventProducer, pair string, ch chan *Order) {
 	for order := range ch {
 		zap.S().Infow("orderConsumerWorker received order",
 			"channel", fmt.Sprintf("%p", ch),
@@ -210,12 +208,14 @@ func (me *MatchEngine) orderHandlerWorker(ctx context.Context, pair string, ch c
 			"price", order.Price,
 			"quantity", order.Quantity,
 		)
+		// call the appropriate matching algorithm (synchronously)
+		if err := me.orderTypeRouter(eventProducer, *order); err != nil {
+			zap.S().Error("Failed to process order", err)
+		}
+
+		// the order will process and if there was any results, it will issue an FILLED event to the Broker.
+		// the consumers will use it to update the DB and notify the user via the websocket.
 	}
-	// call the appropriate matching algorithm (synchronously)
-
-	// the order will process and if there was any results, it will issue an FILLED event to the Broker.
-
-	// the consumers will use it to update the DB and notify the user via the websocket.
 }
 
 func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.OrderEventProducer, event adapterkafka.OrderStatusEvent) error {
@@ -257,12 +257,6 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.OrderEventProd
 // TODO : run the consumer in better approach.
 // Act as the main stream consumer. gives the result to the appropriate channel to handle that.
 func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, configs configs.Configuration, workerID string) error {
-	orderEventConsumer, err := initializeOrderSubmittionEventConsumer(ctx, configs)
-	if err != nil {
-		return fmt.Errorf("failed to initialize order submission consumer: %w", err)
-	}
-	defer orderEventConsumer.Close()
-
 	deduper, ok := (*orderRepository).(interface {
 		MarkEventProcessed(ctx context.Context, consumerName string, eventID string) (bool, error)
 	})
@@ -275,16 +269,15 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 		ConsumerName:    kafka.OrderSubmittedConsumerGroupID,
 	}
 	runner := kafkaconsumer.NewRunner(
-		orderEventConsumer.GetConsumer(),
+		me.OrderEventConsumer.GetConsumer(),
 		func(handlerCtx context.Context, event adapterkafka.OrderStatusEvent, record *kgo.Record) error {
 			if err := order_event_usecases.ValidateStatusEvent(event); err != nil {
 				return err
 			}
 			zap.S().Info("Consuming order status event calls Handle for pair:", event.Pair)
-			if err := handler.Handle(handlerCtx, event, record); err != nil {
+			if err := handler.HandleIncmingOrder(handlerCtx, event, record); err != nil {
 				return err
 			}
-
 			return me.routeOrderEventFanOut(kafkaProducer, event)
 		},
 		kafka.OrderSubmittedConsumerGroupID,
@@ -307,11 +300,11 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 
 // fire and forget with quit channel, Already defined. One goroutine per pair, lives forever, clean shutdown via quit.
 func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepo *repositories.AssetRepository, orderRepository *repositories.OrderRepository, configs configs.Configuration) error {
-	numberOfGoroutines, err := (*assetRepo).GetAvailableAssetsCount(ctx)
+	orderEventConsumer, err := initializeOrderSubmittionEventConsumer(ctx, configs)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize order submission consumer: %w", err)
 	}
-	zap.S().Infow("Starting match engine goroutines", "numPairs", numberOfGoroutines)
+	me.OrderEventConsumer = orderEventConsumer
 
 	// one worker goroutine per pair — must start before orderMainConsumer begins routing into channels
 	for pair, ch := range me.OrderRouter.workers {
@@ -319,7 +312,7 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 		go func(pair string, ch chan *Order) {
 			defer wg.Done()
 			zap.S().Infow("Started order handler worker goroutine", "pair", pair)
-			me.orderHandlerWorker(ctx, pair, ch)
+			me.orderHandlerWorker(ctx, kafkaProducer, pair, ch)
 		}(pair, ch)
 	}
 

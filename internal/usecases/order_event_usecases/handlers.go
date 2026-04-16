@@ -56,9 +56,24 @@ func (h *ProjectionHandler) Handle(ctx context.Context, event kafka.OrderStatusE
 }
 
 func (h *ProjectionHandler) HandleIncmingOrder(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
-	// mark event as proceed.
+	if event.EventID == "" {
+		return errors.New("missing event_id")
+	}
 
-	// route the order based on its pais to the associated engine.
+	// the order itself will create in POST /order/limit HTTP endpoint
+	inserted, err := h.Deduper.MarkEventProcessed(ctx, h.ConsumerName, event.EventID)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		zap.S().Infow("duplicate event ignored",
+			"consumer_name", h.ConsumerName,
+			"event_id", event.EventID,
+			"order_id", event.ID,
+			"topic", record.Topic,
+		)
+		return nil
+	}
 	return nil
 }
 
