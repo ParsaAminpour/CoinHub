@@ -30,11 +30,12 @@ const (
 //
 //	(many)              buffer       (1 per pair)       buffer        (1+)
 type Engine interface {
-	Run(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepository *repositories.AssetRepository, orderRepository *repositories.OrderRepository) error
-	orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, workerID string) error
+	Run(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepository *repositories.AssetRepository, orderRepository *repositories.OrderRepository, configs configs.Configuration) error
+	orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, configs configs.Configuration, workerID string) error
 	SubmitOrder(eventProducer *kafka.OrderEventProducer, order Order) error
 	orderHandlerWorker(ctx context.Context, pair string, ch chan *Order)
 	TradeChConsumer(ctx context.Context) error
+	Close()
 	// OrderDispatcher(ctx context.Context, kafkaClient *kafka.OrderEventProducer, order *Order) error
 }
 
@@ -53,7 +54,6 @@ func (r *OrderRouter) addOrder(pair string, order *Order) {
 
 type MatchEngine struct {
 	Orderbook Orderbook
-	OrderChan chan Order // Remove it till we use another process for running engine.
 	TradeChan chan Trade // Remove it till we use another process for running engine.
 
 	OrderRouter        *OrderRouter
@@ -91,14 +91,20 @@ func (a *SupportedPairLight) fixSupportedPairLight() error {
 // TODO : handle the errors too.
 func NewMatchEngine(ctx context.Context, configs configs.Configuration, availableAssets []SupportedPairLight) Engine {
 	orderEventProduced, _ := initializeOrderSubmittionEventProducer(ctx, configs)
-	orderEventConsumer, _ := initializeOrderSubmittionEventConsumer(ctx, configs)
 	orderRouter, _ := initializeOrderRouter(ctx, availableAssets)
 	return &MatchEngine{
-		OrderChan:          make(chan Order, OrderChanBufferSize),
 		TradeChan:          make(chan Trade, TradeChanBufferSize),
 		OrderRouter:        orderRouter,
 		OrderEventProducer: orderEventProduced,
-		OrderEventConsumer: orderEventConsumer,
+	}
+}
+
+func (me *MatchEngine) Close() {
+	if me.OrderEventProducer != nil {
+		me.OrderEventProducer.Close()
+	}
+	if me.OrderEventConsumer != nil {
+		me.OrderEventConsumer.Close()
 	}
 }
 
@@ -131,6 +137,18 @@ func initializeOrderSubmittionEventConsumer(ctx context.Context, configs configs
 	zap.S().Infow("Initializing Order Submission Event Consumer", "selectedTopics", selectedTopics)
 	orderEventConsumer := kafka.NewOrderEventConsumer(ctx, consumerClient)
 	return orderEventConsumer, nil
+}
+
+func initializeOrderSubmittionEventDLQ(ctx context.Context, configs configs.Configuration) (*kgo.Client, error) {
+	dlqProducerCleient, dlqErr := kgo.NewClient(
+		kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
+	)
+	if dlqErr != nil {
+		zap.S().Errorw("failed to create DLQ producer client", "error", dlqErr)
+	}
+
+	// TODO : defer DLQ producer
+	return dlqProducerCleient, nil
 }
 
 func initializeOrderRouter(ctx context.Context, availableAssets []SupportedPairLight) (*OrderRouter, error) {
@@ -238,7 +256,13 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.OrderEventProd
 // @note this function get all orders comes from the main stream, then it route the incoming order to its assocaited engine-orderbook.
 // TODO : run the consumer in better approach.
 // Act as the main stream consumer. gives the result to the appropriate channel to handle that.
-func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, workerID string) error {
+func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, configs configs.Configuration, workerID string) error {
+	orderEventConsumer, err := initializeOrderSubmittionEventConsumer(ctx, configs)
+	if err != nil {
+		return fmt.Errorf("failed to initialize order submission consumer: %w", err)
+	}
+	defer orderEventConsumer.Close()
+
 	deduper, ok := (*orderRepository).(interface {
 		MarkEventProcessed(ctx context.Context, consumerName string, eventID string) (bool, error)
 	})
@@ -251,7 +275,7 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 		ConsumerName:    kafka.OrderSubmittedConsumerGroupID,
 	}
 	runner := kafkaconsumer.NewRunner(
-		me.OrderEventConsumer.GetConsumer(),
+		orderEventConsumer.GetConsumer(),
 		func(handlerCtx context.Context, event adapterkafka.OrderStatusEvent, record *kgo.Record) error {
 			if err := order_event_usecases.ValidateStatusEvent(event); err != nil {
 				return err
@@ -261,14 +285,20 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 				return err
 			}
 
-			zap.S().Info("Consuming order status event calls routeOrderEventFanOut for pair:", event.Pair)
-
 			return me.routeOrderEventFanOut(kafkaProducer, event)
 		},
 		kafka.OrderSubmittedConsumerGroupID,
 		3,
 		2*time.Second,
 	)
+
+	submittionEventDLQ, err := initializeOrderSubmittionEventDLQ(ctx, configs)
+	if err != nil {
+		return err
+	}
+	defer submittionEventDLQ.Close()
+
+	runner = runner.WithDLQ(submittionEventDLQ, kafka.OrderSubmittedConsumerDLQTopic)
 	if err := runner.Run(ctx); err != nil {
 		zap.S().Fatalw("projection consumer stopped with error", "error", err)
 	}
@@ -276,22 +306,12 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 }
 
 // fire and forget with quit channel, Already defined. One goroutine per pair, lives forever, clean shutdown via quit.
-func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepo *repositories.AssetRepository, orderRepository *repositories.OrderRepository) error {
+func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepo *repositories.AssetRepository, orderRepository *repositories.OrderRepository, configs configs.Configuration) error {
 	numberOfGoroutines, err := (*assetRepo).GetAvailableAssetsCount(ctx)
 	if err != nil {
 		return err
 	}
 	zap.S().Infow("Starting match engine goroutines", "numPairs", numberOfGoroutines)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		zap.S().Infow("orderMainConsumer goroutine started")
-		if err := me.orderMainConsumer(ctx, kafkaProducer, orderRepository, "mock-worker-id"); err != nil {
-			zap.S().Errorw("orderChConsumer error", "error", err)
-		}
-		zap.S().Infow("orderMainConsumer goroutine finished")
-	}()
 
 	// one worker goroutine per pair — must start before orderMainConsumer begins routing into channels
 	for pair, ch := range me.OrderRouter.workers {
@@ -302,6 +322,16 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 			me.orderHandlerWorker(ctx, pair, ch)
 		}(pair, ch)
 	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		zap.S().Infow("orderMainConsumer goroutine started")
+		if err := me.orderMainConsumer(ctx, kafkaProducer, orderRepository, configs, "mock-worker-id"); err != nil {
+			zap.S().Errorw("orderChConsumer error", "error", err)
+		}
+		zap.S().Infow("orderMainConsumer goroutine finished")
+	}()
 
 	go func() {
 		<-ctx.Done()
@@ -319,9 +349,9 @@ func (me *MatchEngine) TradeChConsumer(ctx context.Context) error {
 	return nil
 }
 
-func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepository repositories.AssetRepository, orderRepository repositories.OrderRepository, matchEngine *MatchEngine) error {
+func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.OrderEventProducer, assetRepository repositories.AssetRepository, orderRepository repositories.OrderRepository, matchEngine *MatchEngine, configs configs.Configuration) error {
 	zap.S().Info("Setting up match engine...")
-	if err := matchEngine.Run(ctx, wg, kafkaProducer, &assetRepository, &orderRepository); err != nil {
+	if err := matchEngine.Run(ctx, wg, kafkaProducer, &assetRepository, &orderRepository, configs); err != nil {
 		return err
 	}
 	return nil

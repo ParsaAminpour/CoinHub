@@ -117,14 +117,20 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	return app
 }
 
+func (app *Application) Shutdown() {
+	if app.OrderEventProducer != nil {
+		app.OrderEventProducer.Close()
+	}
+	if app.OrderMatchEngine != nil {
+		app.OrderMatchEngine.Close()
+	}
+}
+
 func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepository repositories.TradingPairRepository, configs configs.Configuration) error {
 	availableAssets, _ := tradingPairRepository.GetActivePairs(ctx)
 	availableAssetsLight := make([]engine.SupportedPairLight, 0)
 	for _, pair := range availableAssets {
 		availableAssetsLight = append(availableAssetsLight, *engine.NewSupportedPairLight(pair.ID.String(), pair.Symbol()))
-	}
-	for _, a := range availableAssetsLight {
-		zap.S().Infow("Registering match engine pair", "pairID", a.ID, "symbol", a.Symbol)
 	}
 	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs, availableAssetsLight).(*engine.MatchEngine)
 	return nil

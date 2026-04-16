@@ -26,7 +26,6 @@ func (h *ProjectionHandler) Handle(ctx context.Context, event kafka.OrderStatusE
 	if event.EventID == "" {
 		return errors.New("missing event_id")
 	}
-	zap.S().Info("just a log....")
 
 	// the order itself will create in POST /order/limit HTTP endpoint
 	inserted, err := h.Deduper.MarkEventProcessed(ctx, h.ConsumerName, event.EventID)

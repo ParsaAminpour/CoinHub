@@ -21,3 +21,7 @@ func NewOrderEventConsumer(ctx context.Context, client *kgo.Client) *OrderEventC
 func (oec *OrderEventConsumer) GetConsumer() *kgo.Client {
 	return oec.consumer
 }
+
+func (oec *OrderEventConsumer) Close() {
+	oec.consumer.Close()
+}

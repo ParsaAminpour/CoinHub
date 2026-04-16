@@ -60,3 +60,7 @@ func (oep *OrderEventProducer) PublishOrderEventBatch(events []OrderEvent) error
 	}
 	return nil
 }
+
+func (oep *OrderEventProducer) Close() {
+	oep.producer.Close()
+}

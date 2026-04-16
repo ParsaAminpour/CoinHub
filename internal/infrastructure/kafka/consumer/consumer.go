@@ -65,10 +65,10 @@ func (r *Runner) Run(ctx context.Context) error {
 			for _, ferr := range errs {
 				zap.S().Errorw("kafka poll error", "consumer_name", r.name, "error", ferr)
 			}
-			continue
 		}
 
 		iter := fetches.RecordIter()
+		var toCommit []*kgo.Record
 		for !iter.Done() {
 			record := iter.Next()
 			if record == nil {
@@ -85,18 +85,17 @@ func (r *Runner) Run(ctx context.Context) error {
 				)
 				continue
 			}
-			if err := r.client.CommitRecords(ctx, record); err != nil {
-				r.failedRecords++
-				zap.S().Errorw("offset commit failed",
+			toCommit = append(toCommit, record)
+			r.processed++
+		}
+		if len(toCommit) > 0 {
+			if err := r.client.CommitRecords(ctx, toCommit...); err != nil {
+				r.failedRecords += uint64(len(toCommit))
+				zap.S().Errorw("batch offset commit failed",
 					"consumer_name", r.name,
-					"topic", record.Topic,
-					"partition", record.Partition,
-					"offset", record.Offset,
 					"error", err,
 				)
-				continue
 			}
-			r.processed++
 		}
 	}
 }

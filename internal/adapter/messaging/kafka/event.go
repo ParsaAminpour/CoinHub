@@ -14,6 +14,9 @@ import (
 const (
 	OrderPrjectionConsumerGroupID string = "order-projection-consumer-v1"
 	OrderSubmittedConsumerGroupID string = "order-submitted-consumer-v1"
+
+	OrderProjectionConsumerDLQTopic string = "order-projection-consumer.dlq"
+	OrderSubmittedConsumerDLQTopic  string = "order-submitted-consumer.dlq"
 )
 
 type OrderEventTopic func(metadata string) string
