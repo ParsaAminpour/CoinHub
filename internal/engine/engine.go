@@ -83,7 +83,7 @@ func initializeOrderSubmittionEventConsumer(ctx context.Context, configs configs
 		return nil, err
 	}
 
-	zap.S().Info("Initializing Order Submission Event Consumer")
+	zap.S().Info("Initializing Order Submission Event Consumer", "selectedTopics", selectedTopics)
 	orderEventConsumer := kafka.NewOrderEventConsumer(ctx, consumerClient)
 	return orderEventConsumer, nil
 }
@@ -120,6 +120,7 @@ func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.OrderEventProducer, 
 	// handle the tradeCh
 	return err
 }
+
 func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.OrderEventProducer, event adapterkafka.OrderStatusEvent) error {
 	// TODOD : implement it...
 	zap.S().Infow("orderRouter received event",
@@ -156,6 +157,7 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.OrderEventProd
 // NOTE : this function will run concurrently for each system available pair.
 // NOTE : the number of workers is based on the number of available pairs that we support.
 // @note this function get all orders comes from the main stream, then it route the incoming order to its assocaited engine-orderbook.
+// TODO : run the consumer in better approach.
 func (me *MatchEngine) orderChConsumer(ctx context.Context, kafkaProducer *kafka.OrderEventProducer, orderRepository *repositories.OrderRepository, workerID string) error {
 	zap.S().Infow("orderChConsumer started", "workerID", workerID)
 

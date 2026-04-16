@@ -6,8 +6,11 @@ import (
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/engine"
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 )
 
 type SubmitOrderUsecases struct {
@@ -20,19 +23,23 @@ func NewOrderUsecases(txManager repositories.TxManager) *SubmitOrderUsecases {
 	}
 }
 
+// it creates an open order in DB and add an submitted event to the Broker.
 func (ou *SubmitOrderUsecases) SubmitOrder(
 	ctx context.Context,
 	matchEngine *engine.MatchEngine,
 	eventProducer *kafka.OrderEventProducer,
 	userID string,
-	pair string,
+	pair string, // the pair here is in BTC-USDT format
 	orderType entities.OrderType,
 	side entities.OrderSide,
 	price decimal.Decimal,
 	quantity decimal.Decimal) error {
 	// register it on DB
 	return ou.txManager.WithinTransaction(ctx, func(ctx context.Context, tx repositories.Tx) error {
-		orderEntity := entities.NewOrder(userID, pair, orderType, side, price, quantity)
+		formattedPairForDB := fmt.Sprintf("%s/%s", strings.Split(pair, "-")[0], strings.Split(pair, "-")[1])
+		zap.S().Infow("Formatted trading pair for DB", "formattedPairForDB", formattedPairForDB)
+
+		orderEntity := entities.NewOrder(userID, formattedPairForDB, orderType, side, price, quantity)
 		if err := tx.Orders().CreateOrder(ctx, orderEntity); err != nil {
 			return err
 		}

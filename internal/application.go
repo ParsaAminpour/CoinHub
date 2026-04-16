@@ -55,6 +55,7 @@ type Application struct {
 	// Message Broker configuration
 	OrderEventProducer *kafka.OrderEventProducer
 	OrderEventConsumer *kafka.OrderEventConsumer // we don't need this
+	KafkaTopicManager  *kafka.TopicManager
 
 	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
@@ -125,13 +126,20 @@ func (app *Application) registerMessageStreamer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// consumerClient, err := kgo.NewClient(
-	// 	kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)),
-	// 	kgo.ConsumeTopics(kafka.CoinHubOrderStatusTopic("BTC.USDT")), // TODO : configure per pair and consumer role
-	// 	kgo.ConsumerGroup(kafka.OrderPrjectionConsumerGroupID),
-	// )
+
+	topicManager := kafka.NewTopicManager(producerClient)
+	pairCount, err := app.AssetRepository.GetActiveTradingPairsCount(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get active trading pairs count for topic sync: %w", err)
+	}
+	if pairCount > 0 {
+		if err := topicManager.SyncPartitions(ctx, kafka.CoinhubAllCurrentTopics(), pairCount); err != nil {
+			return fmt.Errorf("failed to sync kafka topic partitions: %w", err)
+		}
+	}
+	app.KafkaTopicManager = topicManager
+
 	app.OrderEventProducer = kafka.NewOrderEventProducer(ctx, producerClient)
-	// app.OrderEventConsumer = kafka.NewOrderEventConsumer(ctx, consumerClient)
 	zap.S().Info("Kafka Message Broker initialized and registered✅")
 	return nil
 }

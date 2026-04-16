@@ -28,10 +28,10 @@ func (oep *OrderEventProducer) publishOrderEvent(event OrderEvent) error {
 	}
 
 	topic := CoinhubEventDispatcher(event.GetEventHeader().EventType, event.GetSymbol())
-	zap.S().Infow("the topic in producer", "topic", topic)
+	zap.S().Infow("the topic in producer", "topic", topic, "pair", event.GetSymbol())
 	record := &kgo.Record{
 		Topic: topic,
-		Key:   []byte(fmt.Sprintf("%s", event.GetOrderID())),
+		Key:   []byte(fmt.Sprintf("%s-%s", event.GetBaseAsset(), event.GetQuoteAsset())),
 		Value: payload,
 		Headers: []kgo.RecordHeader{
 			{Key: "event_type", Value: []byte(event.GetEventHeader().EventType)},

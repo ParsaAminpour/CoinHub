@@ -33,7 +33,6 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 
 			app := internal.NewApplication(ctx, configs)
 			selectedTopics := adapterkafka.CoinhubAllTopicsByEventTypes([]adapterkafka.EventType{
-				adapterkafka.EventOrderPlaced,
 				adapterkafka.EventOrderFilled,
 				adapterkafka.EventOrderPartial,
 				adapterkafka.EventOrderStatus,

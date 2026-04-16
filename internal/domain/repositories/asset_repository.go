@@ -10,4 +10,5 @@ type AssetRepository interface {
 	GetAssetByCotnractAddress(ctx context.Context, ca string) (*entities.Asset, error)
 	GetAvailableAssets(ctx context.Context) ([]entities.Asset, error)
 	GetAvailableAssetsCount(ctx context.Context) (int, error)
+	GetActiveTradingPairsCount(ctx context.Context) (int32, error)
 }

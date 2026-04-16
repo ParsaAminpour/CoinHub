@@ -49,6 +49,20 @@ func (ass *AssetRepository) GetAssetByCotnractAddress(ctx context.Context, ca st
 	return &allAssets[0], nil
 }
 
+func (ass *AssetRepository) GetActiveTradingPairsCount(ctx context.Context) (int32, error) {
+	var count int64
+	if err := ass.db.Model(&entities.TradingPair{}).
+		Where("status = ?", entities.TradingPairStatusActive).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int32(count), nil
+}
+
 func (ass *AssetRepository) Create(ctx context.Context, asset *entities.Asset) error {
+	if err := ass.db.WithContext(ctx).Create(asset).Error; err != nil {
+		zap.S().Errorw("failed to create asset", "error", err, "asset", asset)
+		return err
+	}
 	return nil
 }

@@ -27,7 +27,7 @@ const (
 type Order struct {
 	ID        string
 	UserID    string
-	Pair      string // "BTC/USDT"
+	Pair      string // NOTE : the Order in engine and kafka is in BTC-USDT format, unlikely in DB which is BTC/USDT format.
 	Type      OrderType
 	Side      OrderSide
 	Price     decimal.Decimal // zero for market orders

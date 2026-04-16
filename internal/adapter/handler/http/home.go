@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
@@ -27,9 +28,9 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 	// }
 
 	event := kafka.NewOrderEvent(
-		"testid",
+		uuid.NewString(),
 		"mockUserID",
-		"BTC.USDT",
+		"BTC-USDT",
 		kafka.OrderTypeLimit,
 		kafka.StatusFilled,
 		kafka.EventOrderFilled,

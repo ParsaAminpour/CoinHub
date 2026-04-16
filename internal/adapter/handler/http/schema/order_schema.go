@@ -13,7 +13,7 @@ import (
 type PlaceOrderRequest struct {
 	UserID      int64       `json:"user_id"       validate:"required"`
 	ClientOrdID string      `json:"client_ord_id" validate:"required,max=36,client_ord_id"`
-	Symbol      string      `json:"symbol"        validate:"required,symbol_format"`
+	Symbol      string      `json:"symbol"        validate:"required,symbol_format"` // e.g. BTC-USDT
 	Side        Side        `json:"side"          validate:"required,oneof=BUY SELL"`
 	OrderType   OrdType     `json:"ord_type"      validate:"required,oneof=LIMIT MARKET STOP_LIMIT IOC FOK POST_ONLY"`
 	Price       string      `json:"price"         validate:"omitempty,decimal_gt0"`

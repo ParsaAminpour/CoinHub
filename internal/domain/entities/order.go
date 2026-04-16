@@ -1,10 +1,13 @@
 package entities
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +46,35 @@ type Order struct {
 	DeletedAt gorm.DeletedAt  `gorm:"index"`
 }
 
+func validateNewOrderInputs(
+	userID string,
+	pair string,
+	orderType OrderType,
+	side OrderSide,
+	price decimal.Decimal,
+	quantity decimal.Decimal,
+) error {
+	if userID == "" {
+		return fmt.Errorf("userID is required")
+	}
+	if pair == "" || !strings.Contains(pair, "/") {
+		return fmt.Errorf("pair is required")
+	}
+	if orderType != OrderTypeLimit && orderType != OrderTypeMarket && orderType != OrderTypeCancel {
+		return fmt.Errorf("invalid order type: %s", orderType)
+	}
+	if side != SideBuy && side != SideSell {
+		return fmt.Errorf("invalid order side: %s", side)
+	}
+	if price.IsNegative() {
+		return fmt.Errorf("price must not be negative")
+	}
+	if quantity.LessThanOrEqual(decimal.Zero) {
+		return fmt.Errorf("quantity must be positive")
+	}
+	return nil
+}
+
 func NewOrder(
 	userID string,
 	pair string,
@@ -51,6 +83,10 @@ func NewOrder(
 	price decimal.Decimal,
 	quantity decimal.Decimal,
 ) *Order {
+	if err := validateNewOrderInputs(userID, pair, orderType, side, price, quantity); err != nil {
+		zap.S().Errorw("failed to create new order", "error", err)
+		return nil
+	}
 	return &Order{
 		UserID:    userID,
 		Pair:      pair,

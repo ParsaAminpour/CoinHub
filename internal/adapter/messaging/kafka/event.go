@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,8 +59,6 @@ var (
 			return CoinHubOrderStatusTopic(metadata)
 		case EventOrderSubmitted:
 			return CoinHubOrderSubmittedTopic(metadata)
-		case EventOrderPlaced:
-			return CoinHubOrderPlacedTopic(metadata)
 		case EventOrderCanceled:
 			return CoinHubOrderCanceledTopic(metadata)
 		case EventOrderExpired:
@@ -98,7 +98,6 @@ type EventType string
 
 const (
 	EventOrderSubmitted EventType = "ORDER_SUBMITTED" // API accepted order for engine processing
-	EventOrderPlaced    EventType = "ORDER_PLACED"    // open, trigger when http endpoint calls
 	EventOrderFilled    EventType = "ORDER_FILLED"
 	EventOrderPartial   EventType = "ORDER_PARTIAL_FILLED"
 	EventOrderStatus    EventType = "ORDER_STATUS_CHANGED" // do we need this?
@@ -139,7 +138,7 @@ type OrderStatusEvent struct {
 
 	ID           string          `json:"id"`
 	UserID       string          `json:"user_id"`
-	Pair         string          `json:"pair"` // "BTC/USDT"
+	Pair         string          `json:"pair"` // "BTC-USDT"
 	Type         OrderType       `json:"type"`
 	Side         OrderSide       `json:"side"`
 	Price        decimal.Decimal `json:"price"`
@@ -147,6 +146,73 @@ type OrderStatusEvent struct {
 	Filled       decimal.Decimal `json:"filled"`
 	Status       OrderStatus     `json:"status"`
 	RemainingQty decimal.Decimal `json:"remaining_qty"`
+}
+
+func validateNewOrderEventInputs(
+	id string,
+	userID string,
+	pair string,
+	orderType OrderType,
+	newStatus OrderStatus,
+	eventType EventType,
+	side OrderSide,
+	price decimal.Decimal,
+	quantity decimal.Decimal,
+	filled decimal.Decimal,
+	remainingQty decimal.Decimal,
+) error {
+	// validate id
+	if id == "" {
+		return fmt.Errorf("order id is required")
+	}
+	// validate userID
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+	// validate pair format
+	if pair == "" || !strings.Contains(pair, "-") {
+		return fmt.Errorf("pair should be in format BASE/QUOTE")
+	}
+	// validate order type
+	if orderType != OrderTypeLimit && orderType != OrderTypeMarket && orderType != OrderTypeCancel {
+		return fmt.Errorf("invalid order type: %s", orderType)
+	}
+	// validate status
+	validStatuses := map[OrderStatus]struct{}{
+		StatusOpen: {}, StatusPartial: {}, StatusFilled: {}, StatusCancelled: {}, StatusExpired: {},
+	}
+	if _, ok := validStatuses[newStatus]; !ok {
+		return fmt.Errorf("invalid order status: %s", newStatus)
+	}
+	// validate event type
+	validEventTypes := map[EventType]struct{}{
+		EventOrderSubmitted: {}, EventOrderFilled: {}, EventOrderPartial: {}, EventOrderStatus: {},
+		EventOrderCanceled: {}, EventOrderExpired: {}, EventTradeExecuted: {},
+	}
+	if _, ok := validEventTypes[eventType]; !ok {
+		return fmt.Errorf("invalid event type: %s", eventType)
+	}
+	// validate order side
+	if side != SideBuy && side != SideSell {
+		return fmt.Errorf("invalid order side: %s", side)
+	}
+	// validate price
+	if price.IsNegative() {
+		return fmt.Errorf("price should not be negative")
+	}
+	// validate quantity
+	if quantity.LessThanOrEqual(decimal.Zero) {
+		return fmt.Errorf("quantity should be positive")
+	}
+	// validate filled
+	if filled.IsNegative() {
+		return fmt.Errorf("filled quantity should not be negative")
+	}
+	// validate remainingQty
+	if remainingQty.IsNegative() {
+		return fmt.Errorf("remainingQty should not be negative")
+	}
+	return nil
 }
 
 func NewOrderEvent(
@@ -162,6 +228,11 @@ func NewOrderEvent(
 	filled decimal.Decimal,
 	remainingQty decimal.Decimal,
 ) OrderEvent {
+	if err := validateNewOrderEventInputs(
+		id, userID, pair, orderType, newStatus, eventType, side, price, quantity, filled, remainingQty,
+	); err != nil {
+		fmt.Errorf(fmt.Sprintf("invalid NewOrderEvent input: %v", err))
+	}
 	return OrderStatusEvent{
 		EventHeader: EventHeader{
 			EventID:   uuid.NewString(),
@@ -189,12 +260,17 @@ type OrderEvent interface {
 	GetOrderID() string
 	GetOrderUserID() string
 	GetSymbol() string
+	GetBaseAsset() string
+	GetQuoteAsset() string
 }
 
 func (ose OrderStatusEvent) GetEventHeader() EventHeader { return ose.EventHeader }
 func (ose OrderStatusEvent) GetOrderID() string          { return ose.ID }
 func (ose OrderStatusEvent) GetOrderUserID() string      { return ose.UserID }
 func (ose OrderStatusEvent) GetSymbol() string           { return ose.Pair }
+func (ose OrderStatusEvent) GetBaseAsset() string        { return strings.Split(ose.Pair, "-")[0] } // e.g. BTC
+func (ose OrderStatusEvent) GetQuoteAsset() string       { return strings.Split(ose.Pair, "-")[1] } // e.g. USDT
+
 func (ose OrderStatusEvent) ChangeStatusEvent(newEventType EventType, newOrderStatus OrderStatus) {
 	ose.EventHeader.EventType = newEventType
 	ose.Status = newOrderStatus

@@ -75,6 +75,9 @@ func SetupRouter(app *internal.Application) error {
 func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	r.GET("/ping", apiGetHandler(GetHome, app)) // TODO : remove this
 
+	if err := registerSystemRoutes(r, app); err != nil {
+		return err
+	}
 	if err := registerUserRoutes(r, app); err != nil {
 		return err
 	}
@@ -133,6 +136,18 @@ func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) er
 	authGroup := r.Group("transaction")
 	authGroup.Use(security.AuthMiddleware())
 	authGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, app))
+	return nil
+}
+
+// NOTE : Contains system and sensitive operation which means it should be highly protected and the access control applied.
+// TODO : implement the routing strategy of this section after the access control added.
+func registerSystemRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	systemGroup := r.Group("system")
+	systemGroup.Use(security.AuthMiddleware())
+
+	operationGroup := systemGroup.Group("operation")
+	assetOperationsGroup := operationGroup.Group("asset")
+	assetOperationsGroup.POST("/add", apiPostHandler(CreateAssetAdminOperationHandler, app))
 	return nil
 }
 
