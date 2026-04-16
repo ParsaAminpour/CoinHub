@@ -46,6 +46,7 @@ func (ou *SubmitOrderUsecases) SubmitOrder(
 
 		orderToProcess := engine.NewOrder(userID, pair, engine.OrderType(orderType), engine.OrderSide(side), price, quantity)
 		orderToProcess.ID = orderEntity.ID
+		zap.S().Info("calling the submit order...")
 		if err := matchEngine.SubmitOrder(eventProducer, *orderToProcess); err != nil {
 			return err
 		}

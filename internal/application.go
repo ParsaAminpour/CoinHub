@@ -35,6 +35,7 @@ type Application struct {
 	TransferRepository      repositories.TransferEventRepository
 	AssetRepository         repositories.AssetRepository
 	OrderRepository         repositories.OrderRepository
+	TradingPairRepository   repositories.TradingPairRepository
 	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
@@ -106,7 +107,7 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	}
 
 	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
-	if err := app.registerMatchEngine(ctx, *app.Configs); err != nil {
+	if err := app.registerMatchEngine(ctx, app.TradingPairRepository, *app.Configs); err != nil {
 		zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
 	}
 
@@ -116,8 +117,16 @@ func NewApplication(ctx context.Context, configs *configs.Configuration) Applica
 	return app
 }
 
-func (app *Application) registerMatchEngine(ctx context.Context, configs configs.Configuration) error {
-	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs).(*engine.MatchEngine)
+func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepository repositories.TradingPairRepository, configs configs.Configuration) error {
+	availableAssets, _ := tradingPairRepository.GetActivePairs(ctx)
+	availableAssetsLight := make([]engine.SupportedPairLight, 0)
+	for _, pair := range availableAssets {
+		availableAssetsLight = append(availableAssetsLight, *engine.NewSupportedPairLight(pair.ID.String(), pair.Symbol()))
+	}
+	for _, a := range availableAssetsLight {
+		zap.S().Infow("Registering match engine pair", "pairID", a.ID, "symbol", a.Symbol)
+	}
+	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs, availableAssetsLight).(*engine.MatchEngine)
 	return nil
 }
 
@@ -128,7 +137,7 @@ func (app *Application) registerMessageStreamer(ctx context.Context) error {
 	}
 
 	topicManager := kafka.NewTopicManager(producerClient)
-	pairCount, err := app.AssetRepository.GetActiveTradingPairsCount(ctx)
+	pairCount, err := app.TradingPairRepository.GetActivePairsCount(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get active trading pairs count for topic sync: %w", err)
 	}
@@ -176,6 +185,7 @@ func (app *Application) registerRepositories() error {
 	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)
 	app.AssetRepository = repository.NewAssetRepository(app.MySqlGorm)
 	app.OrderRepository = repository.NewOrderRepository(app.MySqlGorm)
+	app.TradingPairRepository = repository.NewTradingPairRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	zap.S().Infow("Repositories registered ✅")
 	return nil
