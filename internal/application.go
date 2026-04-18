@@ -10,6 +10,7 @@ import (
 	"coinhub/internal/engine"
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/database"
+	"coinhub/internal/infrastructure/market"
 	"context"
 	"flag"
 	"fmt"
@@ -49,6 +50,7 @@ type ApplicationOptions struct {
 	SkipCache         bool
 	SkipMatchEngine   bool
 	SkipMessageBroker bool
+	SkipMarket        bool
 }
 
 // TODO : Add connections graceful shutdown
@@ -82,8 +84,8 @@ type Application struct {
 
 	// Message Broker configuration
 	EngineEventProducer *kafka.EngineEventProducer
-	OrderEventConsumer *kafka.OrderEventConsumer // we don't need this
-	KafkaTopicManager  *kafka.TopicManager
+	OrderEventConsumer  *kafka.OrderEventConsumer // we don't need this
+	KafkaTopicManager   *kafka.TopicManager
 
 	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
@@ -92,6 +94,8 @@ type Application struct {
 
 	// Matching Engine setup, Match Engine should be in a separated service indeed.
 	OrderMatchEngine *engine.MatchEngine
+
+	MarketPriceFeed market.PriceFeed
 }
 
 var _ App = (*Application)(nil)
@@ -140,6 +144,12 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 		}
 	}
 
+	if !o.SkipMarket {
+		if err := app.registerMarket(); err != nil {
+			zap.S().Fatalf("❌ error in registering market: %s", err.Error())
+		}
+	}
+
 	if !o.SkipETHClient {
 		if err := app.registerETHClient(); err != nil {
 			zap.S().Fatalf("❌ error in registering eth client: %s", err.Error())
@@ -185,17 +195,14 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 	return app
 }
 
-func (app *Application) Shutdown() {
-	if app.EngineEventProducer != nil {
-		app.EngineEventProducer.Close()
-	}
-	if app.OrderMatchEngine != nil {
-		app.OrderMatchEngine.Close()
-	}
-	if app.OrderEventConsumer != nil {
-		app.OrderEventConsumer.Close()
-	}
-	zap.S().Info("The application shutted down!")
+func (app *Application) registerMarket() error {
+	cfg := app.Configs.Market.ExternalPriceFeed
+	app.MarketPriceFeed = market.NewPriceFeed(cfg.ProviderName, cfg.BaseURL, cfg.PriceFeedAPIKey)
+	zap.S().Infow("market price feed registered",
+		"provider", cfg.ProviderName,
+		"base_url", cfg.BaseURL,
+	)
+	return nil
 }
 
 func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepository repositories.TradingPairRepository, configs configs.Configuration) error {
@@ -357,4 +364,17 @@ func (app *Application) registerMailDialer(ctx context.Context) error {
 	zap.S().Infow("Mail dialer config", "host", app.Configs.Mail.SMTPHost, "port", app.Configs.Mail.SMTPPort, "username", app.Configs.Mail.SMTPUsername)
 	zap.S().Info("Mail dialer registered✅")
 	return nil
+}
+
+func (app *Application) Shutdown() {
+	if app.EngineEventProducer != nil {
+		app.EngineEventProducer.Close()
+	}
+	if app.OrderMatchEngine != nil {
+		app.OrderMatchEngine.Close()
+	}
+	if app.OrderEventConsumer != nil {
+		app.OrderEventConsumer.Close()
+	}
+	zap.S().Info("The application shutted down!")
 }

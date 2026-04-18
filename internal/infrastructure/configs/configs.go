@@ -101,6 +101,14 @@ type Configuration struct {
 		FromName     string `env:"MAIL_FROM_NAME" default:"Coinhub"`
 	}
 
+	Market struct {
+		ExternalPriceFeed struct {
+			ProviderName    string `env:"MARKET_PRICEFEED_PROVIDER" env-default:""`
+			BaseURL         string `env:"MARKET_PRICEFEED_BASE_URL" env-default:""`
+			PriceFeedAPIKey string `env:"MARKET_PRICE_FEED_API_KEY" env-required:"true"`
+		}
+	}
+
 	// Firebase struct {
 	// 	ServiceAccountJSON string `env:"FIREBASE_SERVICE_ACCOUNT_JSON"`
 	// 	ServiceAccountPath string `env:"FIREBASE_SERVICE_ACCOUNT_PATH" env-default:"./certs/firebase-service-account.json"`

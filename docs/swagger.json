@@ -258,6 +258,110 @@
                 }
             }
         },
+        "/v1/order/limit": {
+            "post": {
+                "description": "Submits a limit order to the matching engine and publishes an order event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "order"
+                ],
+                "summary": "Place limit order",
+                "parameters": [
+                    {
+                        "description": "PlaceOrderRequest",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/schema.PlaceOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Order accepted",
+                        "schema": {
+                            "$ref": "#/definitions/helper.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/order/market": {
+            "post": {
+                "description": "Submits a market order to the matching engine using the latest market price and publishes an order event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "order"
+                ],
+                "summary": "Place market order",
+                "parameters": [
+                    {
+                        "description": "PlaceOrderRequest",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/schema.PlaceOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Order accepted",
+                        "schema": {
+                            "$ref": "#/definitions/helper.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/helper.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/transaction/withdraw": {
             "post": {
                 "description": "Handles asset withdrawal requests for native tokens.",
@@ -419,6 +523,111 @@
                 }
             }
         },
+        "schema.OrdType": {
+            "type": "string",
+            "enum": [
+                "LIMIT",
+                "MARKET",
+                "STOP_LIMIT",
+                "IOC",
+                "FOK",
+                "POST_ONLY"
+            ],
+            "x-enum-varnames": [
+                "Limit",
+                "Market",
+                "StopLimit",
+                "IOC",
+                "FOK",
+                "PostOnly"
+            ]
+        },
+        "schema.PlaceOrderRequest": {
+            "type": "object",
+            "required": [
+                "client_ord_id",
+                "ord_type",
+                "qty",
+                "side",
+                "symbol",
+                "user_id"
+            ],
+            "properties": {
+                "client_ord_id": {
+                    "type": "string",
+                    "maxLength": 36
+                },
+                "expire_at": {
+                    "type": "string"
+                },
+                "ord_type": {
+                    "enum": [
+                        "LIMIT",
+                        "MARKET",
+                        "STOP_LIMIT",
+                        "IOC",
+                        "FOK",
+                        "POST_ONLY"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/schema.OrdType"
+                        }
+                    ]
+                },
+                "price": {
+                    "type": "string"
+                },
+                "qty": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "side": {
+                    "enum": [
+                        "BUY",
+                        "SELL"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/schema.Side"
+                        }
+                    ]
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "WEB",
+                        "MOBILE",
+                        "API"
+                    ]
+                },
+                "stop_price": {
+                    "type": "string"
+                },
+                "symbol": {
+                    "description": "e.g. BTC-USDT",
+                    "type": "string"
+                },
+                "time_in_force": {
+                    "enum": [
+                        "GTC",
+                        "GTD",
+                        "IOC",
+                        "FOK"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/schema.TimeInForce"
+                        }
+                    ]
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "schema.RegisterUserRequest": {
             "type": "object",
             "required": [
@@ -465,6 +674,42 @@
                     "type": "string"
                 }
             }
+        },
+        "schema.Side": {
+            "type": "string",
+            "enum": [
+                "BUY",
+                "SELL"
+            ],
+            "x-enum-varnames": [
+                "Buy",
+                "Sell"
+            ]
+        },
+        "schema.TimeInForce": {
+            "type": "string",
+            "enum": [
+                "GTC",
+                "GTD",
+                "IOC",
+                "FOK"
+            ],
+            "x-enum-comments": {
+                "GTC": "Good Till Cancel",
+                "GTD": "Good Till Date"
+            },
+            "x-enum-descriptions": [
+                "Good Till Cancel",
+                "Good Till Date",
+                "",
+                ""
+            ],
+            "x-enum-varnames": [
+                "GTC",
+                "GTD",
+                "TIF_IOC",
+                "TIF_FOK"
+            ]
         },
         "schema.WithdrawNativeRequest": {
             "type": "object",

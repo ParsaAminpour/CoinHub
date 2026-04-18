@@ -344,7 +344,6 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 		wg.Add(1)
 		go func(pair string, ch chan *Order) {
 			defer wg.Done()
-			zap.S().Infow("Started order handler worker goroutine", "pair", pair)
 			me.orderHandlerWorker(ctx, kafkaProducer, pair, ch)
 		}(pair, ch)
 	}
