@@ -28,9 +28,11 @@ func RunApi(configs *configs.Configuration) *cobra.Command {
 			wg := &sync.WaitGroup{}
 			ctx = context.WithValue(ctx, "wg", wg)
 
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName: cmd.Name(),
+			})
 
-			if err := http.SetupRouter(&app); err != nil {
+			if err := http.SetupRouter(app); err != nil {
 				zap.S().Error("error occurred in setting up the http router\n%s", err.Error())
 			}
 

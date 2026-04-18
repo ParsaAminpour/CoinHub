@@ -46,7 +46,6 @@ func init() {
 
 	rootCmd.AddCommand(RunApi(&configs.C))
 	rootCmd.AddCommand(RunMigrate(&configs.C))
-	rootCmd.AddCommand(RunMatching(&configs.C))
 	rootCmd.AddCommand(RunWorker(&configs.C))
 	rootCmd.AddCommand(RunOnchainWatcher(&configs.C))
 	rootCmd.AddCommand(RunOrderMatchEngine(&configs.C))

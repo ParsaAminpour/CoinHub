@@ -25,6 +25,32 @@ import (
 	"gorm.io/gorm"
 )
 
+// App is the minimal surface shared by all CoinHub binaries (lifecycle + config).
+// Prefer narrow interfaces in new code; handlers may still depend on *Application until refactored.
+type App interface {
+	Configuration() *configs.Configuration
+	Shutdown()
+}
+
+// ApplicationOptions selects which subsystems NewApplication wires. The zero value means
+// “initialize everything” (backward compatible). Each cmd should pass explicit skips instead
+// of trying to detect the binary at runtime.
+type ApplicationOptions struct {
+	CommandName string
+
+	SkipHDWallet      bool
+	SkipMySQL         bool
+	SkipRedis         bool
+	SkipRepositories  bool
+	SkipETHClient     bool
+	SkipWalletService bool
+	SkipAsynq         bool
+	SkipMail          bool
+	SkipCache         bool
+	SkipMatchEngine   bool
+	SkipMessageBroker bool
+}
+
 // TODO : Add connections graceful shutdown
 type Application struct {
 	Configs *configs.Configuration
@@ -67,52 +93,93 @@ type Application struct {
 	OrderMatchEngine *engine.MatchEngine
 }
 
-func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
-	app := Application{Configs: configs}
+var _ App = (*Application)(nil)
 
-	if err := app.registerHDWallet(); err != nil {
-		zap.S().Fatalf("error in registering HDWallet: %s", err.Error())
+func (app *Application) Configuration() *configs.Configuration {
+	return app.Configs
+}
+
+func NewApplication(ctx context.Context, configs *configs.Configuration, opts ...ApplicationOptions) *Application {
+	var o ApplicationOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.CommandName != "" {
+		zap.S().Infow("bootstrapping application", "command", o.CommandName)
 	}
 
-	if err := app.registerMySqlGorm(); err != nil {
-		zap.S().Fatalf("❌ error in registering DB: %s", err.Error())
+	app := &Application{Configs: configs}
+
+	skipWalletSvc := o.SkipWalletService || o.SkipHDWallet || o.SkipETHClient
+	if o.SkipCache && !o.SkipRedis {
+		zap.S().Warn("SkipCache is set without SkipRedis; cache step will still require Redis")
 	}
 
-	if err := app.registerRedis(ctx); err != nil {
-		zap.S().Fatalf("❌ error in registering redis: %s", err.Error())
+	if !o.SkipHDWallet {
+		if err := app.registerHDWallet(); err != nil {
+			zap.S().Fatalf("❌ error in registering HDWallet: %s", err.Error())
+		}
 	}
 
-	if err := app.registerRepositories(); err != nil {
-		zap.S().Fatalf("❌ error in registering repositories: %s", err.Error())
+	if !o.SkipMySQL {
+		if err := app.registerMySqlGorm(); err != nil {
+			zap.S().Fatalf("❌ error in registering DB: %s", err.Error())
+		}
 	}
 
-	if err := app.registerETHClient(); err != nil {
-		zap.S().Fatalf("❌ error in registering eth client: %s", err.Error())
+	if !o.SkipRedis {
+		if err := app.registerRedis(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering redis: %s", err.Error())
+		}
 	}
 
-	if err := app.registerServices(); err != nil {
-		zap.S().Fatalf("❌ error in registering services: %s", err.Error())
+	if !o.SkipRepositories {
+		if err := app.registerRepositories(); err != nil {
+			zap.S().Fatalf("❌ error in registering repositories: %s", err.Error())
+		}
 	}
 
-	if err := app.registerAsynqClient(); err != nil {
-		zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
+	if !o.SkipETHClient {
+		if err := app.registerETHClient(); err != nil {
+			zap.S().Fatalf("❌ error in registering eth client: %s", err.Error())
+		}
 	}
 
-	if err := app.registerMailDialer(ctx); err != nil {
-		zap.S().Fatalf("❌ error in registering mail dialer: %s", err.Error())
+	if !skipWalletSvc {
+		if err := app.registerServices(); err != nil {
+			zap.S().Fatalf("❌ error in registering services: %s", err.Error())
+		}
 	}
 
-	if err := app.registerCache(ctx); err != nil {
-		zap.S().Fatalf("❌ error in registering cache: %s", err.Error())
+	if !o.SkipAsynq {
+		if err := app.registerAsynqClient(); err != nil {
+			zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
+		}
+	}
+
+	if !o.SkipMail {
+		if err := app.registerMailDialer(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering mail dialer: %s", err.Error())
+		}
+	}
+
+	if !o.SkipCache {
+		if err := app.registerCache(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering cache: %s", err.Error())
+		}
 	}
 
 	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
-	if err := app.registerMatchEngine(ctx, app.TradingPairRepository, *app.Configs); err != nil {
-		zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
+	if !o.SkipMatchEngine {
+		if err := app.registerMatchEngine(ctx, app.TradingPairRepository, *app.Configs); err != nil {
+			zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
+		}
 	}
 
-	if err := app.registerMessageStreamer(ctx); err != nil {
-		zap.S().Fatalf("❌ error in registering message broker: %s", err.Error())
+	if !o.SkipMessageBroker {
+		if err := app.registerMessageStreamer(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering message broker: %s", err.Error())
+		}
 	}
 	return app
 }

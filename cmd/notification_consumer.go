@@ -29,7 +29,18 @@ func RunNotificationConsumer(configs *configs.Configuration) *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipRedis:         true,
+				SkipETHClient:     true,
+				SkipWalletService: true,
+				SkipAsynq:         true,
+				SkipMail:          true,
+				SkipCache:         true,
+				SkipMatchEngine:   true,
+				SkipMessageBroker: true,
+			})
 			topic := adapterkafka.CoinHubOrderStatusTopic(pair)
 			dlqTopic := fmt.Sprintf("%s.dlq", topic)
 			zap.S().Infow("notification consumer subscribing", "topic", topic, "group_id", groupID)

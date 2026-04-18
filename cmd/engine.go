@@ -36,7 +36,13 @@ func RunOrderMatchEngine(configs *configs.Configuration) *cobra.Command {
 			defer cancel()
 
 			// the match engine initialized in here
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipETHClient:     true,
+				SkipWalletService: true,
+				SkipCache:         true,
+			})
 
 			closeSignal := make(chan os.Signal, 1)
 			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)

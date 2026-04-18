@@ -31,7 +31,18 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipRedis:         true,
+				SkipETHClient:     true,
+				SkipWalletService: true,
+				SkipAsynq:         true,
+				SkipMail:          true,
+				SkipCache:         true,
+				SkipMatchEngine:   true,
+				SkipMessageBroker: true,
+			})
 			selectedTopics := adapterkafka.CoinhubAllTopicsByEventTypes([]adapterkafka.EventType{
 				adapterkafka.EventOrderFilled,
 				adapterkafka.EventOrderPartial,
@@ -78,7 +89,6 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 				2*time.Second,
 			)
 			if enableDLQ {
-				dlqTopic := "order-projection-consumer.dlq"
 				dlqProducerClient, dlqErr := kgo.NewClient(
 					kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
 				)
@@ -86,7 +96,7 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 					zap.S().Fatalw("failed to create projection dlq producer client", "error", dlqErr)
 				}
 				defer dlqProducerClient.Close()
-				runner = runner.WithDLQ(dlqProducerClient, dlqTopic)
+				runner = runner.WithDLQ(dlqProducerClient, kafka.OrderProjectionConsumerDLQTopic)
 				zap.S().Infow("DLQ enabled for projection consumer", "dlq_topic", "order-projection-consumer.dlq")
 			}
 

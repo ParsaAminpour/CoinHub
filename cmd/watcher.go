@@ -26,10 +26,17 @@ func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipWalletService: true,
+				SkipMail:          true,
+				SkipMatchEngine:   true,
+				SkipMessageBroker: true,
+			})
 
 			// TODO : add onchain listener for all available and supporting networks
-			if err := blockchain.StartOnchainListener(ctx, &app); err != nil {
+			if err := blockchain.StartOnchainListener(ctx, app); err != nil {
 				zap.S().Fatalw("failed to start onchain listener", "error", err)
 			}
 
