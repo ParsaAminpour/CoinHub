@@ -9,6 +9,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// EventPublisher is the minimal interface the orderbook needs to emit order events.
+// *OrderEventProducer satisfies it; tests use a lightweight in-memory mock.
+type EventPublisher interface {
+	PublishOrderEvent(event OrderEvent) error
+	PublishOrderEventBatch(events []OrderEvent) error
+}
+
 type OrderEventProducer struct {
 	ctx      context.Context
 	producer *kgo.Client

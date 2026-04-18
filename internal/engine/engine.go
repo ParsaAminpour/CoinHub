@@ -53,8 +53,8 @@ func (r *OrderRouter) addOrder(pair string, order *Order) {
 }
 
 type MatchEngine struct {
-	Orderbook Orderbook
-	TradeChan chan Trade // Remove it till we use another process for running engine.
+	Orderbooks map[string]*Orderbook // one Orderbook per trading pair, e.g. "BTC-USDT" -> *Orderbook
+	TradeChan  chan Trade             // Remove it till we use another process for running engine.
 
 	OrderRouter        *OrderRouter
 	OrderEventProducer *kafka.OrderEventProducer
@@ -92,11 +92,26 @@ func (a *SupportedPairLight) fixSupportedPairLight() error {
 func NewMatchEngine(ctx context.Context, configs configs.Configuration, availableAssets []SupportedPairLight) Engine {
 	orderEventProduced, _ := initializeOrderSubmittionEventProducer(ctx, configs)
 	orderRouter, _ := initializeOrderRouter(ctx, availableAssets)
+	orderbooks := initializeOrderbooks(availableAssets)
 	return &MatchEngine{
+		Orderbooks:         orderbooks,
 		TradeChan:          make(chan Trade, TradeChanBufferSize),
 		OrderRouter:        orderRouter,
 		OrderEventProducer: orderEventProduced,
 	}
+}
+
+func initializeOrderbooks(availableAssets []SupportedPairLight) map[string]*Orderbook {
+	orderbooks := make(map[string]*Orderbook, len(availableAssets))
+	for _, asset := range availableAssets {
+		if asset.Symbol == nil {
+			continue
+		}
+		orderbooks[*asset.Symbol] = &Orderbook{
+			Pair: *asset.Symbol,
+		}
+	}
+	return orderbooks
 }
 
 func (me *MatchEngine) Close() {
@@ -183,14 +198,19 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.OrderEventProducer, inco
 }
 
 func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.OrderEventProducer, order Order) error {
+	ob, ok := me.Orderbooks[order.Pair]
+	if !ok {
+		zap.S().Errorw("no orderbook found for pair, order dropped", "pair", order.Pair, "orderID", order.ID)
+		return fmt.Errorf("no orderbook for pair %s", order.Pair)
+	}
 	var err error
 	switch order.Type {
 	case OrderTypeLimit:
-		_, err = me.Orderbook.MatchLimit(eventProducer, order)
+		_, err = ob.MatchLimit(eventProducer, order)
 	case OrderTypeMarket:
-		_, err = me.Orderbook.MatchMarket(eventProducer, order)
+		_, err = ob.MatchMarket(eventProducer, order)
 	case OrderTypeCancel:
-		_, err = me.Orderbook.Cancel(order)
+		_, err = ob.Cancel(order)
 	}
 	return err
 }

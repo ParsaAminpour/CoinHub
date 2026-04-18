@@ -35,43 +35,36 @@ type Side struct {
 	Levels []*PriceLevel // could be bids or asks
 }
 
-func (s Side) Add(order Order, price decimal.Decimal) error {
-	if len(s.Levels) == 0 {
-		priceLevel := NewPriceLevel([]*Order{&order}, price)
-		_ = append(s.Levels, priceLevel)
-	}
-
-	if order.Side == SideBuy {
-		for idx, orderPl := range s.Levels { // s.Levels are descending start from idx:0
-			nextPriceLevel := s.Levels[idx+1]
-			if orderPl.PriceLevel.Equal(price) {
-				_ = append(orderPl.Orders, &order) // oldest goes to the last
-
-			} else if orderPl.PriceLevel.LessThan(price) && (nextPriceLevel == nil || nextPriceLevel.PriceLevel.GreaterThan(price)) {
-				priceLevel := NewPriceLevel([]*Order{&order}, price)
-				s.Levels = append(s.Levels[:idx+1], append([]*PriceLevel{priceLevel}, s.Levels[idx+1:]...)...)
-
-			} else if orderPl.PriceLevel.LessThan(price) { // new best bid offer
-				priceLevel := NewPriceLevel([]*Order{&order}, price)
-				s.Levels = append([]*PriceLevel{priceLevel}, s.Levels...)
-			}
-		}
-	} else {
-		for idx, orderPl := range s.Levels { // the sequence goes ascending start from the idx:0
-			nextPriceLevel := s.Levels[idx+1]
-			if orderPl.PriceLevel.Equal(price) {
-				_ = append(orderPl.Orders, &order) // oldest goes to the last
-
-			} else if orderPl.PriceLevel.GreaterThan(price) && (nextPriceLevel == nil || nextPriceLevel.PriceLevel.LessThan(price)) {
-				priceLevel := NewPriceLevel([]*Order{&order}, price)
-				s.Levels = append(s.Levels[:idx+1], append([]*PriceLevel{priceLevel}, s.Levels[idx+1:]...)...)
-
-			} else if orderPl.PriceLevel.LessThan(price) { // new best ask offer
-				priceLevel := NewPriceLevel([]*Order{&order}, price)
-				s.Levels = append([]*PriceLevel{priceLevel}, s.Levels...)
-			}
+func (s *Side) Add(order Order, price decimal.Decimal) error {
+	// If an existing level matches the price, append the order there (FIFO within level).
+	for _, lvl := range s.Levels {
+		if lvl.PriceLevel.Equal(price) {
+			lvl.Orders = append(lvl.Orders, &order)
+			return nil
 		}
 	}
+
+	// New price level — insert at the correct sorted position.
+	// Bids: descending (highest price first).
+	// Asks: ascending (lowest price first).
+	newLevel := NewPriceLevel([]*Order{&order}, price)
+	inserted := false
+	newLevels := make([]*PriceLevel, 0, len(s.Levels)+1)
+	for _, lvl := range s.Levels {
+		if !inserted {
+			isBefore := (order.Side == SideBuy && price.GreaterThan(lvl.PriceLevel)) ||
+				(order.Side == SideSell && price.LessThan(lvl.PriceLevel))
+			if isBefore {
+				newLevels = append(newLevels, newLevel)
+				inserted = true
+			}
+		}
+		newLevels = append(newLevels, lvl)
+	}
+	if !inserted {
+		newLevels = append(newLevels, newLevel)
+	}
+	s.Levels = newLevels
 	return nil
 }
 
@@ -82,11 +75,6 @@ func (s *Side) BestPriceLevel() *PriceLevel {
 		return nil
 	}
 	return s.Levels[0]
-}
-
-func (s *Side) RemovePriceLevel(price decimal.Decimal) error {
-	// implement it..
-	return nil
 }
 
 func (s *Side) PopFront() {
@@ -131,7 +119,7 @@ type Orderbook struct {
 // Returns:
 //   - A receive-only channel of Trade objects (matched trades if any).
 //   - An error if no match is possible or an internal error occurs.
-func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomingOrder Order) (<-chan Trade, error) {
+func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrder Order) (<-chan Trade, error) {
 	if incomingOrder.Side == SideBuy {
 		if len(ob.Asks.Levels) == 0 {
 			return nil, ErrOrderbookEmpty
@@ -146,9 +134,10 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 		bestPriceLevel := ob.Asks.BestPriceLevel()
 		if bestPriceLevel.PriceLevel.LessThanOrEqual(incomingOrder.Price) {
 			// the incoming order matched and the settle accounts are going to start...
-			for _, bestOrder := range bestPriceLevel.Orders { // the first firtsrone (oldest one that appended) has more time priority
+			incomingFullyFilled := false
+			for _, bestOrder := range bestPriceLevel.Orders { // oldest order has time priority
 				if bestOrder.UserID == incomingOrder.UserID { // prevent self-order and money-washing
-					continue // go to the next best order
+					continue
 				}
 				rawOrderEventForBestOrder := kafka.NewOrderEvent(
 					bestOrder.ID, bestOrder.UserID, bestOrder.Pair, kafka.OrderType(bestOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
@@ -157,37 +146,39 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 				fillQty := decimal.Min(bestOrder.Remaining(), incomingOrder.Remaining())
 
 				if !fillQty.IsZero() {
-					if bestOrder.Remaining().IsZero() || bestOrder.Remaining().LessThanOrEqual(ob.Dust) { // the order gets filled
-						// remove that best order from the queue
+					// Evaluate fill conditions before updating the filled amounts.
+					restingFilled := fillQty.GreaterThanOrEqual(bestOrder.Remaining())
+					incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
+
+					if restingFilled {
 						ob.Asks.PopFront()
-						// notify that the order gets filled - Emit TradeEvent to the partitions
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
-
-					} else { // the order get filled partialy
+					} else {
 						bestOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
 					}
 
-					// changes related to the incoming order
-					if incomingOrder.Remaining().IsZero() || bestOrder.Remaining().LessThanOrEqual(ob.Dust) {
-						// don't keep the incoming order in orderbook
+					if incomingFilled {
+						incomingFullyFilled = true
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-						// notify that the order gets filled
-					} else { // stay in the orderbook
+					} else {
 						incomingOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-
-						if err := ob.Bids.Add(incomingOrder, incomingOrder.Price); err != nil {
-							zap.S().Errorw("Failed to add incoming order to bids", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
-						}
 					}
-					bestOrder.Filled.Add(fillQty)
-					incomingOrder.Filled.Add(fillQty)
 
+					bestOrder.Filled = bestOrder.Filled.Add(fillQty)
+					incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
+
+					if err := eventProducer.PublishOrderEventBatch([]kafka.OrderEvent{rawOrderEventForBestOrder, rawOrderEventForIncomingOrder}); err != nil {
+						zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", bestOrder.ID, "user_id", bestOrder.UserID, "pair", bestOrder.Pair)
+					}
+					if incomingFullyFilled {
+						break
+					}
 				} else {
 					zap.S().Infow("No matching order found for incoming order",
 						"order_id", incomingOrder.ID,
@@ -195,11 +186,11 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 						"remaining_qty", incomingOrder.Remaining().String(),
 					)
 				}
-
-				// NOTE : Is it appropriate to publish the event related to the resting order first.
-				if err := eventProducer.PublishOrderEventBatch([]kafka.OrderEvent{rawOrderEventForBestOrder, rawOrderEventForIncomingOrder}); err != nil {
-					zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", bestOrder.ID, "user_id", bestOrder.UserID, "pair", bestOrder.Pair)
-					// Q: how to handle this failure?
+			}
+			// Rest the remaining portion of the incoming order on the bid side if not fully filled.
+			if !incomingFullyFilled && incomingOrder.Status == StatusPartial {
+				if err := ob.Bids.Add(incomingOrder, incomingOrder.Price); err != nil {
+					zap.S().Errorw("Failed to add incoming order to bids", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
 				}
 			}
 		}
@@ -215,23 +206,25 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 
 		bestPriceLevel := ob.Bids.BestPriceLevel()
 		if bestPriceLevel.PriceLevel.GreaterThanOrEqual(incomingOrder.Price) {
+			incomingFullyFilled := false
 			for _, bestOrder := range bestPriceLevel.Orders {
 				if bestOrder.UserID == incomingOrder.UserID {
 					continue
 				}
 
-				fillQty := decimal.Min(bestOrder.Price, incomingOrder.Price)
+				fillQty := decimal.Min(bestOrder.Remaining(), incomingOrder.Remaining())
 				rawOrderEventForBestOrder := kafka.NewOrderEvent(
 					bestOrder.ID, bestOrder.UserID, bestOrder.Pair, kafka.OrderType(bestOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
 
 				if !fillQty.IsZero() {
-					if bestOrder.Remaining().IsZero() || bestOrder.Remaining().LessThanOrEqual(ob.Dust) {
-						// remove that best order from the queue
-						ob.Bids.PopFront()
+					// Evaluate fill conditions before updating the filled amounts.
+					restingFilled := fillQty.GreaterThanOrEqual(bestOrder.Remaining())
+					incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
 
-						// notify that the order gets filled - Emit TradeEvent to the partitions
+					if restingFilled {
+						ob.Bids.PopFront()
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
 					} else {
@@ -240,29 +233,33 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
 					}
 
-					if incomingOrder.Remaining().IsZero() || bestOrder.Remaining().LessThanOrEqual(ob.Dust) {
-						// don't keep the incoming order in orderbook
+					if incomingFilled {
+						incomingFullyFilled = true
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-						// notify that the order gets filled
-					} else { // stay in the orderbook
+					} else {
 						incomingOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-						if err := ob.Asks.Add(incomingOrder, incomingOrder.Price); err != nil {
-							zap.S().Errorw("Failed to add incoming order to asks", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
-						}
 					}
-					// NOTE : Is it appropriate to publish the event related to the resting order first.
+
 					if err := eventProducer.PublishOrderEventBatch([]kafka.OrderEvent{rawOrderEventForBestOrder, rawOrderEventForIncomingOrder}); err != nil {
 						zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", bestOrder.ID, "user_id", bestOrder.UserID, "pair", bestOrder.Pair)
-						// Q: how to handle this failure?
 					}
 
-					bestOrder.Filled.Add(fillQty)
-					incomingOrder.Filled.Add(fillQty)
-				}
+					bestOrder.Filled = bestOrder.Filled.Add(fillQty)
+					incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
 
+					if incomingFullyFilled {
+						break
+					}
+				}
+			}
+			// Rest the remaining portion of the incoming order on the ask side if not fully filled.
+			if !incomingFullyFilled && incomingOrder.Status == StatusPartial {
+				if err := ob.Asks.Add(incomingOrder, incomingOrder.Price); err != nil {
+					zap.S().Errorw("Failed to add incoming order to asks", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
+				}
 			}
 		} else {
 			// No match found for the incoming order
@@ -284,7 +281,7 @@ func (ob *Orderbook) MatchLimit(eventProducer *kafka.OrderEventProducer, incomin
 // and marks their status accordingly (partial, filled, cancelled).
 // The function also emits relevant order events through Kafka, using the provided kafkaClient.
 // Returns a channel of Trade objects (or nil if none), and an error if the market cannot be matched.
-func (ob *Orderbook) MatchMarket(eventProducer *kafka.OrderEventProducer, incomingOrder Order) (<-chan Trade, error) {
+func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrder Order) (<-chan Trade, error) {
 	if incomingOrder.Side == SideBuy {
 		if len(ob.Asks.Levels) == 0 {
 			return nil, ErrOrderbookEmpty

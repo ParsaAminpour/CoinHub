@@ -236,7 +236,7 @@ func NewOrderEvent(
 	); err != nil {
 		fmt.Errorf(fmt.Sprintf("invalid NewOrderEvent input: %v", err))
 	}
-	return OrderStatusEvent{
+	return &OrderStatusEvent{
 		EventHeader: EventHeader{
 			EventID:   uuid.NewString(),
 			EventType: eventType,
@@ -274,11 +274,11 @@ func (ose OrderStatusEvent) GetSymbol() string           { return ose.Pair }
 func (ose OrderStatusEvent) GetBaseAsset() string        { return strings.Split(ose.Pair, "-")[0] } // e.g. BTC
 func (ose OrderStatusEvent) GetQuoteAsset() string       { return strings.Split(ose.Pair, "-")[1] } // e.g. USDT
 
-func (ose OrderStatusEvent) ChangeStatusEvent(newEventType EventType, newOrderStatus OrderStatus) {
+func (ose *OrderStatusEvent) ChangeStatusEvent(newEventType EventType, newOrderStatus OrderStatus) {
 	ose.EventHeader.EventType = newEventType
 	ose.Status = newOrderStatus
 }
-func (ose OrderStatusEvent) UpdateOrderFilled(qty decimal.Decimal) {
-	ose.Filled.Add(qty)
-	ose.RemainingQty.Sub(qty)
+func (ose *OrderStatusEvent) UpdateOrderFilled(qty decimal.Decimal) {
+	ose.Filled = ose.Filled.Add(qty)
+	ose.RemainingQty = ose.RemainingQty.Sub(qty)
 }

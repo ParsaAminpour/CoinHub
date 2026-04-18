@@ -39,7 +39,7 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 		decimal.NewFromFloat(1.5),     // quantity
 		decimal.NewFromFloat(1.5),     // filled (fully filled)
 		decimal.Zero,                  // remaining
-	).(kafka.OrderStatusEvent)
+	).(*kafka.OrderStatusEvent)
 	if err := app.OrderEventProducer.PublishOrderEvent(event); err != nil {
 		zap.S().Errorw("failed to publish order filled event", "error", err)
 		return err
