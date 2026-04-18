@@ -18,8 +18,9 @@ import (
 // capturePublisher satisfies kafka.EventPublisher and records every event
 // that MatchLimit would normally send to Kafka.
 type capturePublisher struct {
-	mu     sync.Mutex
-	events []kafka.OrderEvent
+	mu          sync.Mutex
+	events      []kafka.OrderEvent
+	tradeEvents []kafka.TradeStatusEvent
 }
 
 func (p *capturePublisher) PublishOrderEvent(event kafka.OrderEvent) error {
@@ -50,16 +51,57 @@ func (p *capturePublisher) PublishOrderEventBatch(events []kafka.OrderEvent) err
 	return nil
 }
 
+func (p *capturePublisher) PublishTradeStatusEvent(event kafka.TradeStatusEvent) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	zap.S().Infow("[publisher] PublishTradeStatusEvent",
+		"maker_order_id", event.GetMakerOrderID(),
+		"taker_order_id", event.GetTakerOrderID(),
+		"pair", event.GetPair(),
+		"price", event.GetPrice().String(),
+		"quantity", event.GetQuantity().String(),
+		"maker_filled", event.MakerFilled,
+		"taker_filled", event.TakerFilled,
+	)
+	p.tradeEvents = append(p.tradeEvents, event)
+	return nil
+}
+
+func (p *capturePublisher) PublishTradeStatusEventBatch(events []kafka.TradeStatusEvent) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, e := range events {
+		zap.S().Infow("[publisher] PublishTradeStatusEventBatch — single trade",
+			"maker_order_id", e.GetMakerOrderID(),
+			"taker_order_id", e.GetTakerOrderID(),
+			"pair", e.GetPair(),
+			"price", e.GetPrice().String(),
+			"quantity", e.GetQuantity().String(),
+			"maker_filled", e.MakerFilled,
+			"taker_filled", e.TakerFilled,
+		)
+	}
+	p.tradeEvents = append(p.tradeEvents, events...)
+	return nil
+}
+
 func (p *capturePublisher) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.events)
 }
 
+func (p *capturePublisher) tradeCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.tradeEvents)
+}
+
 func (p *capturePublisher) reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.events = nil
+	p.tradeEvents = nil
 }
 
 // ─────────────────────────────────────────────
@@ -176,6 +218,9 @@ func TestMatchLimit_Buy_EmptyAsks(t *testing.T) {
 	if pub.count() != 0 {
 		t.Errorf("expected 0 events published, got %d", pub.count())
 	}
+	if pub.tradeCount() != 0 {
+		t.Errorf("expected 0 trade events, got %d", pub.tradeCount())
+	}
 }
 
 // TestMatchLimit_Sell_EmptyBids: no resting bids → ErrOrderbookEmpty.
@@ -201,6 +246,9 @@ func TestMatchLimit_Sell_EmptyBids(t *testing.T) {
 	}
 	if pub.count() != 0 {
 		t.Errorf("expected 0 events published, got %d", pub.count())
+	}
+	if pub.tradeCount() != 0 {
+		t.Errorf("expected 0 trade events, got %d", pub.tradeCount())
 	}
 }
 
@@ -231,6 +279,9 @@ func TestMatchLimit_Buy_PriceNoMatch(t *testing.T) {
 	}
 	if pub.count() != 0 {
 		t.Errorf("expected 0 events (no match), got %d", pub.count())
+	}
+	if pub.tradeCount() != 0 {
+		t.Errorf("expected 0 trade events (no match), got %d", pub.tradeCount())
 	}
 	if len(ob.Asks.Levels) != 1 {
 		t.Errorf("ask side should be untouched, got %d levels", len(ob.Asks.Levels))
@@ -264,6 +315,10 @@ func TestMatchLimit_Sell_PriceNoMatch(t *testing.T) {
 	// A cancel event must be published for the incoming order.
 	if pub.count() != 1 {
 		t.Errorf("expected 1 cancel event, got %d", pub.count())
+	}
+	// No fill happened → no trade events.
+	if pub.tradeCount() != 0 {
+		t.Errorf("expected 0 trade events (cancel, no fill), got %d", pub.tradeCount())
 	}
 }
 
@@ -300,6 +355,9 @@ func TestMatchLimit_Buy_SelfTrade(t *testing.T) {
 	// Self-trade prevention: the resting order was skipped, so nothing should change.
 	if pub.count() != 0 {
 		t.Errorf("self-trade: expected 0 events published, got %d", pub.count())
+	}
+	if pub.tradeCount() != 0 {
+		t.Errorf("self-trade: expected 0 trade events, got %d", pub.tradeCount())
 	}
 	if len(ob.Asks.Levels) != 1 || len(ob.Asks.Levels[0].Orders) != 1 {
 		t.Errorf("self-trade: ask side must be untouched, got %d levels", len(ob.Asks.Levels))
@@ -347,7 +405,7 @@ func TestMatchLimit_Buy_FullFill(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected nil error, got %v", err)
 	}
-	// Both orders are fully matched → 2 events must be published.
+	// Both orders are fully matched → 2 order events must be published.
 	if pub.count() != 2 {
 		t.Errorf("expected 2 events (one per order), got %d", pub.count())
 	}
@@ -358,6 +416,35 @@ func TestMatchLimit_Buy_FullFill(t *testing.T) {
 	// Incoming buy is fully filled → must NOT be added to the bid side.
 	if len(ob.Bids.Levels) != 0 {
 		t.Errorf("incoming order should NOT be added to bids after full fill, bid levels = %d", len(ob.Bids.Levels))
+	}
+	// Exactly 1 trade event emitted for the single fill.
+	if pub.tradeCount() != 1 {
+		t.Errorf("expected 1 trade event, got %d", pub.tradeCount())
+	} else {
+		te := pub.tradeEvents[0]
+		zap.S().Infow("[trade event check]",
+			"maker_order_id", te.GetMakerOrderID(),
+			"taker_order_id", te.GetTakerOrderID(),
+			"price", te.GetPrice().String(),
+			"quantity", te.GetQuantity().String(),
+			"maker_filled", te.MakerFilled,
+			"taker_filled", te.TakerFilled,
+		)
+		if te.GetMakerOrderID() != "ask-001" {
+			t.Errorf("trade: expected maker=ask-001, got %s", te.GetMakerOrderID())
+		}
+		if te.GetTakerOrderID() != "buy-001" {
+			t.Errorf("trade: expected taker=buy-001, got %s", te.GetTakerOrderID())
+		}
+		if !te.GetQuantity().Equal(d(1)) {
+			t.Errorf("trade: expected quantity=1, got %s", te.GetQuantity().String())
+		}
+		if !te.MakerFilled {
+			t.Errorf("trade: expected MakerFilled=true")
+		}
+		if !te.TakerFilled {
+			t.Errorf("trade: expected TakerFilled=true")
+		}
 	}
 }
 
@@ -406,6 +493,25 @@ func TestMatchLimit_Buy_PartialFill_IncomingLarger(t *testing.T) {
 	// Incoming still has 1 BTC remaining → must be resting on the bid side.
 	if len(ob.Bids.Levels) != 1 {
 		t.Errorf("incoming partial order should be added to bids, bid levels = %d", len(ob.Bids.Levels))
+	}
+	// 1 trade event: resting was fully filled, incoming was not.
+	if pub.tradeCount() != 1 {
+		t.Errorf("expected 1 trade event, got %d", pub.tradeCount())
+	} else {
+		te := pub.tradeEvents[0]
+		zap.S().Infow("[trade event check]",
+			"maker_order_id", te.GetMakerOrderID(), "taker_order_id", te.GetTakerOrderID(),
+			"quantity", te.GetQuantity().String(), "maker_filled", te.MakerFilled, "taker_filled", te.TakerFilled,
+		)
+		if !te.GetQuantity().Equal(d(1)) {
+			t.Errorf("trade: expected quantity=1 (resting fully consumed), got %s", te.GetQuantity().String())
+		}
+		if !te.MakerFilled {
+			t.Errorf("trade: resting ask was fully consumed — MakerFilled should be true")
+		}
+		if te.TakerFilled {
+			t.Errorf("trade: incoming still has remainder — TakerFilled should be false")
+		}
 	}
 }
 
@@ -460,6 +566,24 @@ func TestMatchLimit_Buy_PartialFill_IncomingSmaller(t *testing.T) {
 	if len(ob.Bids.Levels) != 0 {
 		t.Errorf("fully-filled incoming should not be added to bids, bid levels = %d", len(ob.Bids.Levels))
 	}
+	// 1 trade event: incoming fully consumed, resting partially consumed.
+	if pub.tradeCount() != 1 {
+		t.Errorf("expected 1 trade event, got %d", pub.tradeCount())
+	} else {
+		te := pub.tradeEvents[0]
+		zap.S().Infow("[trade event check]",
+			"quantity", te.GetQuantity().String(), "maker_filled", te.MakerFilled, "taker_filled", te.TakerFilled,
+		)
+		if !te.GetQuantity().Equal(d(0.5)) {
+			t.Errorf("trade: expected quantity=0.5, got %s", te.GetQuantity().String())
+		}
+		if te.MakerFilled {
+			t.Errorf("trade: resting ask still has remainder — MakerFilled should be false")
+		}
+		if !te.TakerFilled {
+			t.Errorf("trade: incoming was fully consumed — TakerFilled should be true")
+		}
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,6 +636,25 @@ func TestMatchLimit_Sell_FullFill(t *testing.T) {
 	if len(ob.Asks.Levels) != 0 {
 		t.Errorf("fully-filled incoming sell should not be added to asks, ask levels = %d", len(ob.Asks.Levels))
 	}
+	// 1 trade event: both sides fully filled.
+	if pub.tradeCount() != 1 {
+		t.Errorf("expected 1 trade event, got %d", pub.tradeCount())
+	} else {
+		te := pub.tradeEvents[0]
+		zap.S().Infow("[trade event check]",
+			"maker_order_id", te.GetMakerOrderID(), "taker_order_id", te.GetTakerOrderID(),
+			"quantity", te.GetQuantity().String(), "maker_filled", te.MakerFilled, "taker_filled", te.TakerFilled,
+		)
+		if !te.GetQuantity().Equal(d(1)) {
+			t.Errorf("trade: expected quantity=1, got %s", te.GetQuantity().String())
+		}
+		if !te.MakerFilled {
+			t.Errorf("trade: MakerFilled should be true")
+		}
+		if !te.TakerFilled {
+			t.Errorf("trade: TakerFilled should be true")
+		}
+	}
 }
 
 // TestMatchLimit_Sell_PartialFill_IncomingLarger: incoming sell qty (2 BTC) > resting bid qty (1 BTC).
@@ -558,6 +701,24 @@ func TestMatchLimit_Sell_PartialFill_IncomingLarger(t *testing.T) {
 	if len(ob.Asks.Levels) != 1 {
 		t.Errorf("partially-filled incoming sell should be on ask side, ask levels = %d", len(ob.Asks.Levels))
 	}
+	// 1 trade event: resting bid fully consumed, incoming sell has remainder.
+	if pub.tradeCount() != 1 {
+		t.Errorf("expected 1 trade event, got %d", pub.tradeCount())
+	} else {
+		te := pub.tradeEvents[0]
+		zap.S().Infow("[trade event check]",
+			"quantity", te.GetQuantity().String(), "maker_filled", te.MakerFilled, "taker_filled", te.TakerFilled,
+		)
+		if !te.GetQuantity().Equal(d(1)) {
+			t.Errorf("trade: expected quantity=1, got %s", te.GetQuantity().String())
+		}
+		if !te.MakerFilled {
+			t.Errorf("trade: resting bid fully consumed — MakerFilled should be true")
+		}
+		if te.TakerFilled {
+			t.Errorf("trade: incoming sell has remainder — TakerFilled should be false")
+		}
+	}
 }
 
 // TestMatchLimit_Sell_SelfTrade: same userID on both sides → no match.
@@ -587,6 +748,9 @@ func TestMatchLimit_Sell_SelfTrade(t *testing.T) {
 	}
 	if pub.count() != 0 {
 		t.Errorf("self-trade: expected 0 events, got %d", pub.count())
+	}
+	if pub.tradeCount() != 0 {
+		t.Errorf("self-trade: expected 0 trade events, got %d", pub.tradeCount())
 	}
 	if len(ob.Bids.Levels) != 1 || len(ob.Bids.Levels[0].Orders) != 1 {
 		t.Errorf("self-trade: bid side should be untouched")
@@ -640,5 +804,40 @@ func TestMatchLimit_Buy_MultipleRestingOrders(t *testing.T) {
 	}
 	if len(ob.Bids.Levels) != 0 {
 		t.Errorf("fully filled incoming should not be on bids, bid levels = %d", len(ob.Bids.Levels))
+	}
+	// 2 trade events — one per resting order matched.
+	if pub.tradeCount() != 2 {
+		t.Errorf("expected 2 trade events (one per fill iteration), got %d", pub.tradeCount())
+	} else {
+		// First fill: ask-001 consumed, incoming partial → MakerFilled=true, TakerFilled=false.
+		te1 := pub.tradeEvents[0]
+		zap.S().Infow("[trade 1 check]",
+			"maker_order_id", te1.GetMakerOrderID(), "quantity", te1.GetQuantity().String(),
+			"maker_filled", te1.MakerFilled, "taker_filled", te1.TakerFilled,
+		)
+		if te1.GetMakerOrderID() != "ask-001" {
+			t.Errorf("trade[0]: expected maker=ask-001, got %s", te1.GetMakerOrderID())
+		}
+		if !te1.MakerFilled {
+			t.Errorf("trade[0]: ask-001 fully consumed — MakerFilled should be true")
+		}
+		if te1.TakerFilled {
+			t.Errorf("trade[0]: incoming still has remainder after first fill — TakerFilled should be false")
+		}
+		// Second fill: ask-002 consumed, incoming fully filled → both true.
+		te2 := pub.tradeEvents[1]
+		zap.S().Infow("[trade 2 check]",
+			"maker_order_id", te2.GetMakerOrderID(), "quantity", te2.GetQuantity().String(),
+			"maker_filled", te2.MakerFilled, "taker_filled", te2.TakerFilled,
+		)
+		if te2.GetMakerOrderID() != "ask-002" {
+			t.Errorf("trade[1]: expected maker=ask-002, got %s", te2.GetMakerOrderID())
+		}
+		if !te2.MakerFilled {
+			t.Errorf("trade[1]: ask-002 fully consumed — MakerFilled should be true")
+		}
+		if !te2.TakerFilled {
+			t.Errorf("trade[1]: incoming fully consumed — TakerFilled should be true")
+		}
 	}
 }
