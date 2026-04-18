@@ -60,6 +60,11 @@ type Configuration struct {
 		WSClientEthereumTestnet string `env:"WS_CLIENT_ETHEREUM_TESTNET" env-required:"true"`
 	}
 
+	MessageBroker struct {
+		MessageStreamerHost string `env:"MESSAGE_STREAMER_HOST" env-default:"localhost"`
+		MessageStreamerPort string `env:"MESSAGE_STREAMER_PORT" env-default:"9092"`
+	}
+
 	Lang struct {
 		Locale         string `env:"LANG_LOCALE" env-default:"en"`
 		FallbackLocale string `env:"LANG_FALLBACK" env-default:"en"`
@@ -94,6 +99,14 @@ type Configuration struct {
 		SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
 		FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
 		FromName     string `env:"MAIL_FROM_NAME" default:"Coinhub"`
+	}
+
+	Market struct {
+		ExternalPriceFeed struct {
+			ProviderName    string `env:"MARKET_PRICEFEED_PROVIDER" env-default:""`
+			BaseURL         string `env:"MARKET_PRICEFEED_BASE_URL" env-default:""`
+			PriceFeedAPIKey string `env:"MARKET_PRICE_FEED_API_KEY" env-required:"true"`
+		}
 	}
 
 	// Firebase struct {

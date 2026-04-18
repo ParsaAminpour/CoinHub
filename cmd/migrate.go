@@ -24,6 +24,9 @@ func migrateDatabase(app *internal.Application) error {
 			&entities.WalletAccount{},
 			&entities.EvmTransaction{},
 			&entities.TransferEvent{},
+			&entities.Order{},
+			&entities.ProcessedOrderEvent{},
+			&entities.Trade{},
 		}
 
 		zap.S().Debugw("starting migrations", zap.Int("count", len(mgModels)))
@@ -89,18 +92,30 @@ func RunMigrate(configs *configs.Configuration) *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipRedis:         true,
+				SkipRepositories:  true,
+				SkipETHClient:     true,
+				SkipWalletService: true,
+				SkipAsynq:         true,
+				SkipMail:          true,
+				SkipCache:         true,
+				SkipMatchEngine:   true,
+				SkipMessageBroker: true,
+			})
 
 			if upFlag {
 				zap.S().Info("migrating database")
-				if err := migrateDatabase(&app); err != nil {
+				if err := migrateDatabase(app); err != nil {
 					zap.S().Error("failed to migrate database", zap.Error(err))
 				}
 			}
 
 			if seedFlag {
 				zap.S().Info("seeding database")
-				if err := seedDatabase(&app); err != nil {
+				if err := seedDatabase(app); err != nil {
 					zap.S().Error("failed to seed database", zap.Error(err))
 				}
 			}

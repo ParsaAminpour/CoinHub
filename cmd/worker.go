@@ -23,11 +23,17 @@ func RunWorker(configs *configs.Configuration) *cobra.Command {
 			defer cancel()
 
 			// register infrastructure
-			app := internal.NewApplication(ctx, configs)
+			app := internal.NewApplication(ctx, configs, internal.ApplicationOptions{
+				CommandName:       cmd.Name(),
+				SkipHDWallet:      true,
+				SkipWalletService: true,
+				SkipMatchEngine:   true,
+				SkipMessageBroker: true,
+			})
 
 			server := worker.NewWorker(ctx, *configs)
 			mux := asynq.NewServeMux()
-			worker.RegisterWorkerHandler(mux, &app)
+			worker.RegisterWorkerHandler(mux, app)
 
 			if err := server.Run(mux); err != nil {
 				zap.S().With(zap.Error(err)).Fatal("could not run server")

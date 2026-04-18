@@ -2,8 +2,10 @@ package http
 
 import (
 	"coinhub/internal"
+	"coinhub/internal/adapter/handler/http/helper"
 	"coinhub/internal/adapter/handler/http/schema"
 	"coinhub/internal/infrastructure/security"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -73,6 +75,9 @@ func SetupRouter(app *internal.Application) error {
 func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	r.GET("/ping", apiGetHandler(GetHome, app)) // TODO : remove this
 
+	if err := registerSystemRoutes(r, app); err != nil {
+		return err
+	}
 	if err := registerUserRoutes(r, app); err != nil {
 		return err
 	}
@@ -82,13 +87,25 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	if err := registerTransactionRoutes(r, app); err != nil {
 		return err
 	}
+	if err := registerOrderRoutes(r, app); err != nil {
+		return err
+	}
+	return nil
+}
+
+// TODO : don't pass the entire application structure to the HTTP handlers!
+func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	orderGroup := r.Group("/order")
+	orderGroup.Use(security.AuthMiddleware())
+	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, app))
+	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, app))
+	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, app))
 	return nil
 }
 
 func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	userGroup := r.Group("/user")
 	userGroup.Use(security.AuthMiddleware())
-
 	return nil
 }
 
@@ -99,6 +116,19 @@ func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, app))
 	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, app))
 	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, app))
+	authGroup.POST("/mock/login", apiPostHandler(func(c *gin.Context, app *internal.Application) error {
+		responseHelper := helper.NewResponseHelper()
+		jwtToken, err := security.GenerateToken("parsa") // TODO : remove this
+		if err != nil {
+			return err
+		}
+		responseHelper.SuccessStandard(c, schema.LoginUserResponse{
+			Code:     http.StatusOK,
+			Message:  "user logged in with username successfully",
+			JWTToken: jwtToken,
+		})
+		return nil
+	}, app))
 	return nil
 }
 
@@ -106,6 +136,18 @@ func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) er
 	authGroup := r.Group("transaction")
 	authGroup.Use(security.AuthMiddleware())
 	authGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, app))
+	return nil
+}
+
+// NOTE : Contains system and sensitive operation which means it should be highly protected and the access control applied.
+// TODO : implement the routing strategy of this section after the access control added.
+func registerSystemRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	systemGroup := r.Group("system")
+	systemGroup.Use(security.AuthMiddleware())
+
+	operationGroup := systemGroup.Group("operation")
+	assetOperationsGroup := operationGroup.Group("asset")
+	assetOperationsGroup.POST("/add", apiPostHandler(CreateAssetAdminOperationHandler, app))
 	return nil
 }
 

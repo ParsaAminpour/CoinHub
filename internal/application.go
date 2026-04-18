@@ -1,13 +1,16 @@
 package internal
 
 import (
+	"coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/adapter/repository/cache"
 	repository "coinhub/internal/adapter/repository/postgres"
 	"coinhub/internal/adapter/tasks"
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/domain/services"
+	"coinhub/internal/engine"
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/database"
+	"coinhub/internal/infrastructure/market"
 	"context"
 	"flag"
 	"fmt"
@@ -17,10 +20,38 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/hibiken/asynq"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
+
+// App is the minimal surface shared by all CoinHub binaries (lifecycle + config).
+// Prefer narrow interfaces in new code; handlers may still depend on *Application until refactored.
+type App interface {
+	Configuration() *configs.Configuration
+	Shutdown()
+}
+
+// ApplicationOptions selects which subsystems NewApplication wires. The zero value means
+// “initialize everything” (backward compatible). Each cmd should pass explicit skips instead
+// of trying to detect the binary at runtime.
+type ApplicationOptions struct {
+	CommandName string
+
+	SkipHDWallet      bool
+	SkipMySQL         bool
+	SkipRedis         bool
+	SkipRepositories  bool
+	SkipETHClient     bool
+	SkipWalletService bool
+	SkipAsynq         bool
+	SkipMail          bool
+	SkipCache         bool
+	SkipMatchEngine   bool
+	SkipMessageBroker bool
+	SkipMarket        bool
+}
 
 // TODO : Add connections graceful shutdown
 type Application struct {
@@ -31,6 +62,9 @@ type Application struct {
 	TransactinRepository    repositories.EVMTransactionRepository
 	TransferRepository      repositories.TransferEventRepository
 	AssetRepository         repositories.AssetRepository
+	OrderRepository         repositories.OrderRepository
+	TradingPairRepository   repositories.TradingPairRepository
+	TradeRepository         repositories.TradeRepository
 	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
@@ -48,62 +82,160 @@ type Application struct {
 	AsynqInspector *asynq.Inspector
 	AsynqServer    *asynq.Server
 
-	WsClient *websocket.Conn
+	// Message Broker configuration
+	EngineEventProducer *kafka.EngineEventProducer
+	OrderEventConsumer  *kafka.OrderEventConsumer // we don't need this
+	KafkaTopicManager   *kafka.TopicManager
 
-	AuthGmailCache *cache.AuthGmailCache
+	WsClient *websocket.Conn // TODO : Remove this is we don't need it
+
+	AuthGmailCache           *cache.AuthGmailCache
+	PendingTransactionsCache *cache.PendingTransactionsCache
+
+	// Matching Engine setup, Match Engine should be in a separated service indeed.
+	OrderMatchEngine *engine.MatchEngine
+
+	MarketPriceFeed market.PriceFeed
 }
 
-func NewApplication(ctx context.Context, configs *configs.Configuration) Application {
-	app := Application{Configs: configs}
+var _ App = (*Application)(nil)
 
-	if err := app.registerHDWallet(); err != nil {
-		zap.S().Fatalw("error in registering HDWallet: %s", err.Error())
+func (app *Application) Configuration() *configs.Configuration {
+	return app.Configs
+}
+
+func NewApplication(ctx context.Context, configs *configs.Configuration, opts ...ApplicationOptions) *Application {
+	var o ApplicationOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.CommandName != "" {
+		zap.S().Infow("bootstrapping application", "command", o.CommandName)
 	}
 
-	zap.S().Info("HD wallet initialized and secured")
+	app := &Application{Configs: configs}
 
-	if err := app.registerMySqlGorm(); err != nil {
-		zap.S().Fatalw("❌ error in registering DB: %s", err.Error())
+	skipWalletSvc := o.SkipWalletService || o.SkipHDWallet || o.SkipETHClient
+	if o.SkipCache && !o.SkipRedis {
+		zap.S().Warn("SkipCache is set without SkipRedis; cache step will still require Redis")
 	}
 
-	if err := app.registerRedis(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering redis: %s", err.Error())
+	if !o.SkipHDWallet {
+		if err := app.registerHDWallet(); err != nil {
+			zap.S().Fatalf("❌ error in registering HDWallet: %s", err.Error())
+		}
 	}
 
-	if err := app.registerRepositories(); err != nil {
-		zap.S().Fatalw("❌ error in registering repositories: %s", err.Error())
+	if !o.SkipMySQL {
+		if err := app.registerMySqlGorm(); err != nil {
+			zap.S().Fatalf("❌ error in registering DB: %s", err.Error())
+		}
 	}
 
-	if err := app.registerETHClient(); err != nil {
-		zap.S().Fatalw("❌ error in registering eth client: %s", err.Error())
+	if !o.SkipRedis {
+		if err := app.registerRedis(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering redis: %s", err.Error())
+		}
 	}
 
-	if err := app.registerServices(); err != nil {
-		zap.S().Fatalw("❌ error in registering services: %s", err.Error())
+	if !o.SkipRepositories {
+		if err := app.registerRepositories(); err != nil {
+			zap.S().Fatalf("❌ error in registering repositories: %s", err.Error())
+		}
 	}
 
-	if err := app.registerAsynqClient(); err != nil {
-		zap.S().Fatalw("❌ error in registering asynq client: %s", err.Error())
+	if !o.SkipMarket {
+		if err := app.registerMarket(); err != nil {
+			zap.S().Fatalf("❌ error in registering market: %s", err.Error())
+		}
 	}
 
-	if err := app.registerWebsocketClient(ctx, configs.App.WSClientEthereumTestnet, configs.App.NetworkStatus); err != nil {
-		zap.S().Fatalw(
-			"❌ Failed to register websocket client. Configuration: address=%s, network_status=%s, error=%s",
-			configs.App.WSClientEthereumTestnet,
-			configs.App.NetworkStatus,
-			err.Error(),
-		)
+	if !o.SkipETHClient {
+		if err := app.registerETHClient(); err != nil {
+			zap.S().Fatalf("❌ error in registering eth client: %s", err.Error())
+		}
 	}
 
-	if err := app.registerMailDialer(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering mail dialer: %s", err.Error())
+	if !skipWalletSvc {
+		if err := app.registerServices(); err != nil {
+			zap.S().Fatalf("❌ error in registering services: %s", err.Error())
+		}
 	}
 
-	if err := app.registerCache(ctx); err != nil {
-		zap.S().Fatalw("❌ error in registering cache: %s", err.Error())
+	if !o.SkipAsynq {
+		if err := app.registerAsynqClient(); err != nil {
+			zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
+		}
 	}
 
+	if !o.SkipMail {
+		if err := app.registerMailDialer(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering mail dialer: %s", err.Error())
+		}
+	}
+
+	if !o.SkipCache {
+		if err := app.registerCache(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering cache: %s", err.Error())
+		}
+	}
+
+	// NOTE : First register the match engine and then start the message broker to avoid invalid or repetitve operations
+	if !o.SkipMatchEngine {
+		if err := app.registerMatchEngine(ctx, app.TradingPairRepository, *app.Configs); err != nil {
+			zap.S().Fatalf("❌ error in registering match engine: %s", err.Error())
+		}
+	}
+
+	if !o.SkipMessageBroker {
+		if err := app.registerMessageStreamer(ctx); err != nil {
+			zap.S().Fatalf("❌ error in registering message broker: %s", err.Error())
+		}
+	}
 	return app
+}
+
+func (app *Application) registerMarket() error {
+	cfg := app.Configs.Market.ExternalPriceFeed
+	app.MarketPriceFeed = market.NewPriceFeed(cfg.ProviderName, cfg.BaseURL, cfg.PriceFeedAPIKey)
+	zap.S().Infow("market price feed registered",
+		"provider", cfg.ProviderName,
+		"base_url", cfg.BaseURL,
+	)
+	return nil
+}
+
+func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepository repositories.TradingPairRepository, configs configs.Configuration) error {
+	availableAssets, _ := tradingPairRepository.GetActivePairs(ctx)
+	availableAssetsLight := make([]engine.SupportedPairLight, 0)
+	for _, pair := range availableAssets {
+		availableAssetsLight = append(availableAssetsLight, *engine.NewSupportedPairLight(pair.ID.String(), pair.Symbol()))
+	}
+	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs, availableAssetsLight).(*engine.MatchEngine)
+	return nil
+}
+
+func (app *Application) registerMessageStreamer(ctx context.Context) error {
+	producerClient, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", app.Configs.MessageBroker.MessageStreamerHost, app.Configs.MessageBroker.MessageStreamerPort)))
+	if err != nil {
+		return err
+	}
+
+	topicManager := kafka.NewTopicManager(producerClient)
+	pairCount, err := app.TradingPairRepository.GetActivePairsCount(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get active trading pairs count for topic sync: %w", err)
+	}
+	if pairCount > 0 {
+		if err := topicManager.SyncPartitions(ctx, kafka.CoinhubAllCurrentOrderTopics(), pairCount); err != nil {
+			return fmt.Errorf("failed to sync kafka topic partitions: %w", err)
+		}
+	}
+	app.KafkaTopicManager = topicManager
+
+	app.EngineEventProducer = kafka.NewEngineEventProducer(ctx, producerClient)
+	zap.S().Info("Kafka Message Broker initialized and registered✅")
+	return nil
 }
 
 func (app *Application) registerCache(ctx context.Context) error {
@@ -111,6 +243,7 @@ func (app *Application) registerCache(ctx context.Context) error {
 		return fmt.Errorf("cache configuration failed because redis client has not registered yet")
 	}
 	app.AuthGmailCache = cache.NewAuthGmailCache(ctx, app.RedisClient, tasks.EMAIL_VERIFICATION_CODE_LIFETIME_DURATION)
+	app.PendingTransactionsCache = cache.NewPendingTransactionsCache(ctx, app.RedisClient, cache.PENDING_TRANSACTION_LIFETIME_DURATION)
 	zap.S().Info("AuthGmailCache initialized and registered with Redis ✅")
 	return nil
 }
@@ -136,6 +269,9 @@ func (app *Application) registerRepositories() error {
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)
 	app.AssetRepository = repository.NewAssetRepository(app.MySqlGorm)
+	app.OrderRepository = repository.NewOrderRepository(app.MySqlGorm)
+	app.TradingPairRepository = repository.NewTradingPairRepository(app.MySqlGorm)
+	app.TradeRepository = repository.NewTradeRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	zap.S().Infow("Repositories registered ✅")
 	return nil
@@ -183,7 +319,6 @@ func (app *Application) registerETHClient() error {
 
 	app.ETHClient = httpClient
 	app.ETHWebsocketClient = wsClient
-	zap.S().Infow("ETHClient registered ✅")
 	return nil
 }
 
@@ -216,7 +351,6 @@ func (app *Application) registerWebsocketClient(ctx context.Context, clientUrl s
 		return err
 	}
 	app.WsClient = c
-	zap.S().Infow("Websocket client registered ✅")
 	return nil
 }
 
@@ -230,4 +364,17 @@ func (app *Application) registerMailDialer(ctx context.Context) error {
 	zap.S().Infow("Mail dialer config", "host", app.Configs.Mail.SMTPHost, "port", app.Configs.Mail.SMTPPort, "username", app.Configs.Mail.SMTPUsername)
 	zap.S().Info("Mail dialer registered✅")
 	return nil
+}
+
+func (app *Application) Shutdown() {
+	if app.EngineEventProducer != nil {
+		app.EngineEventProducer.Close()
+	}
+	if app.OrderMatchEngine != nil {
+		app.OrderMatchEngine.Close()
+	}
+	if app.OrderEventConsumer != nil {
+		app.OrderEventConsumer.Close()
+	}
+	zap.S().Info("The application shutted down!")
 }

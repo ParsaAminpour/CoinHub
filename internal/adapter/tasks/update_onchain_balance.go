@@ -1,10 +1,12 @@
 package tasks
 
 import (
+	"coinhub/internal/adapter/repository/cache"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -16,19 +18,20 @@ type TransferEventPayload struct {
 	BlockNumber uint64
 	From        string
 	To          string
-	IsReceiver  bool
-	value       string
-	TokenCA     string
-	Time        time.Time
+	IsRemoved   bool
+	// IsReceiver  bool // the IsReceiver will be determined by the task handler
+	value   string
+	TokenCA string
+	Time    time.Time
 }
 
-func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNumner uint64, isReceiver bool) (*asynq.Task, error) {
+func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNumner uint64, isRemoved bool) (*asynq.Task, error) {
 	transferEventPayload, err := json.Marshal(TransferEventPayload{
 		TrxHash:     trxHash,
 		BlockNumber: blockNumner,
 		From:        from,
 		To:          to,
-		IsReceiver:  isReceiver,
+		IsRemoved:   isRemoved,
 		value:       value,
 		TokenCA:     tokenCA,
 		Time:        time.Unix(time.Now().Unix(), 0),
@@ -40,8 +43,8 @@ func RegisterTransferEventTask(trxHash, from, to, value, tokenCA string, blockNu
 	return task, nil
 }
 
-func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, trxHash, from, to, value, tokenCA string, blockNumner uint64, isReceiver bool) error {
-	task, err := RegisterTransferEventTask(trxHash, from, to, value, tokenCA, blockNumner, isReceiver)
+func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, trxHash, from, to, value, tokenCA string, blockNumner uint64, isRemoved bool) error {
+	task, err := RegisterTransferEventTask(trxHash, from, to, value, tokenCA, blockNumner, isRemoved)
 	if err != nil {
 		return err
 	}
@@ -60,7 +63,9 @@ func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, tr
 	return nil
 }
 
-func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository) error {
+// NOTE: Here we caught up a transaction that is related to our user, now we are going to check the transaction and update its relevant status.
+// TODO : is there any better way to check the transaction status instead of log::Removed?
+func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository, pendingTransactionsCache *cache.PendingTransactionsCache) error {
 	var payload TransferEventPayload
 	err := json.Unmarshal(t.Payload(), &payload)
 	if err != nil {
@@ -73,29 +78,42 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		"blockNumber", payload.BlockNumber,
 		"from", payload.From,
 		"to", payload.To,
-		"isReceiver", payload.IsReceiver,
 		"value", payload.value,
 		"tokenCA", payload.TokenCA,
 		"time", payload.Time,
 	)
 
+	var isReceiver bool
+	if _, err := walletRepo.GetByWalletAddress(ctx, payload.To); err != nil {
+		isReceiver = true
+	} else if _, err := walletRepo.GetByWalletAddress(ctx, payload.From); err != nil {
+		isReceiver = false
+	} else {
+		return fmt.Errorf("both from and to address are not belong to the system")
+	}
+
 	var infectedAddress string
-	if infectedAddress = payload.To; !payload.IsReceiver {
+	if infectedAddress = payload.To; !isReceiver {
 		infectedAddress = payload.From
 	}
-	if err := walletRepo.UpdateTheBalanceSync(ctx, infectedAddress, payload.IsReceiver, payload.Time); err != nil {
+	// Tag the wallet account balance as synced
+	if err := walletRepo.UpdateTheBalanceSync(ctx, infectedAddress, isReceiver, payload.Time); err != nil {
 		return err
 	}
-
 	zap.S().Infow("Updated wallet balance",
 		"infected_address", infectedAddress,
-		"is_receiver", payload.IsReceiver,
+		"is_receiver", isReceiver,
 	)
 
-	var asset *entities.Asset
-	if err := assetRepo.GetAssetByCotnractAddress(ctx, asset, payload.TokenCA); err != nil {
+	asset, err := assetRepo.GetAssetByCotnractAddress(ctx, payload.TokenCA)
+	if err != nil {
 		zap.S().Warnw("Failed to get asset by contract address", "error", err, "tokenCA", payload.TokenCA)
-		return err
+		return fmt.Errorf("asset not found")
+	}
+
+	var transferStatus entities.TransactionStatus = entities.RevertedStatus
+	if !payload.IsRemoved {
+		transferStatus = entities.ConfirmedStatus
 	}
 	transferEvent := entities.NewTransferEvent(
 		payload.TrxHash,
@@ -105,6 +123,7 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		payload.To,
 		payload.value,
 		*asset.Symbol,
+		transferStatus,
 		payload.Time,
 	)
 	if err := transferEventRepo.Create(ctx, transferEvent); err != nil {
@@ -112,5 +131,11 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		return err
 	}
 	zap.S().Info("Processed transfer event successfully")
+
+	if err := pendingTransactionsCache.DeletePendingTransaction(ctx, payload.TrxHash); err != nil {
+		zap.S().Errorw("Failed to delete pending transaction from cache", "error", err, "trxHash", payload.TrxHash)
+		return err
+	}
+	zap.S().Infow("Deleted pending transaction from cache", "trxHash", payload.TrxHash)
 	return nil
 }

@@ -69,6 +69,80 @@ definitions:
     - gmail
     - password
     type: object
+  schema.OrdType:
+    enum:
+    - LIMIT
+    - MARKET
+    - STOP_LIMIT
+    - IOC
+    - FOK
+    - POST_ONLY
+    type: string
+    x-enum-varnames:
+    - Limit
+    - Market
+    - StopLimit
+    - IOC
+    - FOK
+    - PostOnly
+  schema.PlaceOrderRequest:
+    properties:
+      client_ord_id:
+        maxLength: 36
+        type: string
+      expire_at:
+        type: string
+      ord_type:
+        allOf:
+        - $ref: '#/definitions/schema.OrdType'
+        enum:
+        - LIMIT
+        - MARKET
+        - STOP_LIMIT
+        - IOC
+        - FOK
+        - POST_ONLY
+      price:
+        type: string
+      qty:
+        type: string
+      request_id:
+        type: string
+      side:
+        allOf:
+        - $ref: '#/definitions/schema.Side'
+        enum:
+        - BUY
+        - SELL
+      source:
+        enum:
+        - WEB
+        - MOBILE
+        - API
+        type: string
+      stop_price:
+        type: string
+      symbol:
+        description: e.g. BTC-USDT
+        type: string
+      time_in_force:
+        allOf:
+        - $ref: '#/definitions/schema.TimeInForce'
+        enum:
+        - GTC
+        - GTD
+        - IOC
+        - FOK
+      user_id:
+        type: integer
+    required:
+    - client_ord_id
+    - ord_type
+    - qty
+    - side
+    - symbol
+    - user_id
+    type: object
   schema.RegisterUserRequest:
     properties:
       firstname:
@@ -101,6 +175,34 @@ definitions:
       username:
         type: string
     type: object
+  schema.Side:
+    enum:
+    - BUY
+    - SELL
+    type: string
+    x-enum-varnames:
+    - Buy
+    - Sell
+  schema.TimeInForce:
+    enum:
+    - GTC
+    - GTD
+    - IOC
+    - FOK
+    type: string
+    x-enum-comments:
+      GTC: Good Till Cancel
+      GTD: Good Till Date
+    x-enum-descriptions:
+    - Good Till Cancel
+    - Good Till Date
+    - ""
+    - ""
+    x-enum-varnames:
+    - GTC
+    - GTD
+    - TIF_IOC
+    - TIF_FOK
   schema.WithdrawNativeRequest:
     properties:
       amount:
@@ -307,6 +409,76 @@ paths:
       summary: Verify Gmail Verification Code
       tags:
       - auth
+  /v1/order/limit:
+    post:
+      consumes:
+      - application/json
+      description: Submits a limit order to the matching engine and publishes an order
+        event.
+      parameters:
+      - description: PlaceOrderRequest
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.PlaceOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Order accepted
+          schema:
+            $ref: '#/definitions/helper.SuccessResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Place limit order
+      tags:
+      - order
+  /v1/order/market:
+    post:
+      consumes:
+      - application/json
+      description: Submits a market order to the matching engine using the latest
+        market price and publishes an order event.
+      parameters:
+      - description: PlaceOrderRequest
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/schema.PlaceOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Order accepted
+          schema:
+            $ref: '#/definitions/helper.SuccessResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/helper.ErrorResponse'
+      summary: Place market order
+      tags:
+      - order
   /v1/transaction/withdraw:
     post:
       consumes:

@@ -19,11 +19,11 @@ const (
 const (
 	PendingStatus   TransactionStatus = "PENDING"
 	ConfirmedStatus TransactionStatus = "CONFIRMED"
-	FailedStatus    TransactionStatus = "FAILED"
-	RevertedStatus  TransactionStatus = "REVERTED"
+	FailedStatus    TransactionStatus = "FAILED"   // failure due to pre-execution reasons like gas failure
+	RevertedStatus  TransactionStatus = "REVERTED" // failure due to the execution reasons like function call revert
 )
 
-// NOTE : including EVMTransferions that just triggered from our application.
+// NOTE : including EVMTransfer that just triggered from our application.
 type EvmTransaction struct {
 	gorm.Model
 	// Foreign key to User (one user can have many EVM transactions)

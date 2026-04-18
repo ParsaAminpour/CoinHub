@@ -1,6 +1,9 @@
 package entities
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -33,6 +36,27 @@ type TradingPairNetworkAvailability struct {
 	Mainnet bool `json:"mainnet"`
 }
 
+func (t TradingPairNetworkAvailability) Value() (driver.Value, error) {
+	return json.Marshal(t)
+}
+
+func (t *TradingPairNetworkAvailability) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+	return json.Unmarshal(bytes, t)
+}
+
 func (TradingPair) TableName() string {
 	return "trading_pairs"
+}
+
+// Symbol returns the trading pair in BASE/QUOTE format (e.g. "BTC/USDT").
+// Requires BaseAsset and QuoteAsset to be preloaded.
+func (tp TradingPair) Symbol() string {
+	return *tp.BaseAsset.Symbol + "/" + *tp.QuoteAsset.Symbol
 }

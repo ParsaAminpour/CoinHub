@@ -16,11 +16,25 @@ var (
 )
 
 func StartOnchainListener(ctx context.Context, app *internal.Application) error {
-	cas := common.HexToAddress("0x036CbD53842c5426634e7929541eC2318f3dCF7e")
-	if err := startEVMTokenBalanceListener(ctx, app.AsynqClient, app.ETHWebsocketClient, &app.WalletAccountRepository, []common.Address{cas}, 10334076); err != nil {
+	availableAssets, err := app.AssetRepository.GetAvailableAssets(ctx)
+	if err != nil {
+		return err
+	}
+	availableAssetContractAddresses := make([]common.Address, len(availableAssets))
+	for i, cas := range availableAssets {
+		availableAssetContractAddresses[i] = common.HexToAddress(*cas.AssetAddress)
+	}
+
+	if err := startEVMTokenBalanceListener(
+		ctx,
+		app.AsynqClient,
+		app.ETHWebsocketClient,
+		&app.WalletAccountRepository,
+		availableAssetContractAddresses,
+		app.PendingTransactionsCache,
+		10334076); err != nil {
 		zap.S().Errorw("failed to start EVM token balance listener", "error", err)
 		return fmt.Errorf("failed to start EVM token balance listener", "error", err)
 	}
-
 	return nil
 }
