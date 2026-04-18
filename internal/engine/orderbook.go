@@ -287,69 +287,90 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 			return nil, ErrOrderbookEmpty
 		}
 
-		// NOTE : the only thing that is going to change is the filled, remainingQty, status and the eventType sections
 		rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
 			incomingOrder.ID, incomingOrder.UserID, incomingOrder.Pair, kafka.OrderType(incomingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
 			kafka.OrderSide(incomingOrder.Side), incomingOrder.Price, incomingOrder.Quantity, incomingOrder.Filled, incomingOrder.Remaining(),
 		)
 
-		restingOrderEvents := make([]kafka.OrderEvent, 0) // in this scenario (market order) we have multiple best resting orders
+		// Accumulates one event per consumed resting order; published as a single batch.
+		restingOrderEvents := make([]kafka.OrderEvent, 0)
+		incomingFullyFilled := false
+		cancelled := false
+
+	buyLevelLoop:
 		for _, priceLevel := range ob.Asks.Levels {
-			if priceLevel.PriceLevel.LessThanOrEqual(incomingOrder.Price) {
-				for idx, restingOrder := range priceLevel.Orders {
-					if restingOrder.ID == incomingOrder.ID {
-						continue
-					}
-					fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
-					rawOrderEventForRestingOrder := kafka.NewOrderEvent(
-						restingOrder.ID, restingOrder.UserID, restingOrder.Pair, kafka.OrderType(restingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
-						kafka.OrderSide(restingOrder.Side), restingOrder.Price, restingOrder.Quantity, restingOrder.Filled, restingOrder.Remaining(),
-					)
-
-					if restingOrder.IsFilled() || restingOrder.Remaining().LessThanOrEqual(ob.Dust) {
-						// remove that order from the queue and emit the filled event
-						priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
-						rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
-						rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
-					} else {
-						restingOrder.ChangeStatusTo(StatusPartial)
-						rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
-						rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
-					}
-					restingOrderEvents = append(restingOrderEvents, rawOrderEventForRestingOrder)
-
-					if incomingOrder.IsFilled() || incomingOrder.Remaining().LessThanOrEqual(ob.Dust) {
-						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
-						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-
-					} else {
-						incomingOrder.ChangeStatusTo(StatusPartial)
-						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
-						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-						continue
-					}
-
-					if err := eventProducer.PublishOrderEventBatch(append(restingOrderEvents, rawOrderEventForIncomingOrder)); err != nil {
-						// handle or log error if needed, currently just swallowing it
-						zap.S().Errorw("Failed to publish order event batch", "error", err)
-					}
-					restingOrder.Filled.Add(fillQty)
-					incomingOrder.Filled.Add(fillQty)
-
-				}
-
-			} else {
-				// There are two scenario:
-				// 1. the incoming market order is partially filled but there is no match in the other side, so the order should be revert! -> order get partial tag and the we ignore the remaining for the incoming order!
-				// TODO : handle the partial filled - canceled situation.
-				// 2. we don't have an appropriate order to match with the incoming market order! and order get cancelled tag.
+			if priceLevel.PriceLevel.GreaterThan(incomingOrder.Price) {
+				// All remaining levels are too expensive — cancel the unfilled remainder.
 				rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderCanceled, kafka.StatusCancelled)
-				if err := eventProducer.PublishOrderEvent(rawOrderEventForIncomingOrder); err != nil {
-					zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", incomingOrder.ID, "user_id", incomingOrder.UserID, "pair", incomingOrder.Pair)
-				}
+				cancelled = true
 				break
 			}
+
+			// Index-based inner loop so we can safely remove filled orders mid-iteration.
+			for idx := 0; idx < len(priceLevel.Orders); {
+				restingOrder := priceLevel.Orders[idx]
+				if restingOrder.ID == incomingOrder.ID {
+					idx++
+					continue
+				}
+
+				fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
+				if fillQty.IsZero() {
+					idx++
+					continue
+				}
+
+				rawOrderEventForRestingOrder := kafka.NewOrderEvent(
+					restingOrder.ID, restingOrder.UserID, restingOrder.Pair, kafka.OrderType(restingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
+					kafka.OrderSide(restingOrder.Side), restingOrder.Price, restingOrder.Quantity, restingOrder.Filled, restingOrder.Remaining(),
+				)
+
+				// Evaluate conditions before applying fills.
+				restingFilled := fillQty.GreaterThanOrEqual(restingOrder.Remaining())
+				incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
+
+				if restingFilled {
+					priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
+					// idx stays the same — element at idx is now the next order.
+					rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
+					rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
+				} else {
+					restingOrder.ChangeStatusTo(StatusPartial)
+					rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
+					rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
+					idx++
+				}
+				restingOrderEvents = append(restingOrderEvents, rawOrderEventForRestingOrder)
+
+				if incomingFilled {
+					incomingFullyFilled = true
+					rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
+					rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+				} else {
+					incomingOrder.ChangeStatusTo(StatusPartial)
+					rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
+					rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+				}
+
+				restingOrder.Filled = restingOrder.Filled.Add(fillQty)
+				incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
+
+				if incomingFullyFilled {
+					break buyLevelLoop
+				}
+			}
 		}
+
+		// Publish the accumulated batch (cancel, full fill, or partial-then-exhausted).
+		if incomingFullyFilled || cancelled || len(restingOrderEvents) > 0 {
+			allEvents := append(restingOrderEvents, rawOrderEventForIncomingOrder)
+			if err := eventProducer.PublishOrderEventBatch(allEvents); err != nil {
+				zap.S().Errorw("Failed to publish order event batch", "error", err)
+			}
+		}
+
+		// Remove price levels that were fully drained.
+		ob.Asks.Levels = removeEmptyLevels(ob.Asks.Levels)
 
 	} else {
 		if len(ob.Bids.Levels) == 0 {
@@ -362,58 +383,93 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 		)
 
 		restingOrderEvents := make([]kafka.OrderEvent, 0)
+		incomingFullyFilled := false
+		cancelled := false
+
+	sellLevelLoop:
 		for _, priceLevel := range ob.Bids.Levels {
-			if priceLevel.PriceLevel.GreaterThanOrEqual(incomingOrder.Price) {
-				for idx, restingOrder := range priceLevel.Orders {
-					if restingOrder.UserID == incomingOrder.UserID {
-						continue // prevent self-order and money-washing
-					}
-					rawOrderEventForRestingOrder := kafka.NewOrderEvent(
-						restingOrder.ID, restingOrder.UserID, restingOrder.Pair, kafka.OrderType(restingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
-						kafka.OrderSide(restingOrder.Side), restingOrder.Price, restingOrder.Quantity, restingOrder.Filled, restingOrder.Remaining(),
-					)
-					fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
-
-					if !fillQty.IsZero() {
-						if restingOrder.Remaining().IsZero() || restingOrder.Remaining().LessThanOrEqual(ob.Dust) {
-							priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
-							rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
-							rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
-						} else {
-							restingOrder.ChangeStatusTo(StatusPartial)
-							rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
-							rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
-						}
-						restingOrderEvents = append(restingOrderEvents, rawOrderEventForRestingOrder)
-
-						if incomingOrder.Remaining().IsZero() || restingOrder.Remaining().LessThanOrEqual(ob.Dust) {
-							rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
-							rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-						} else {
-							incomingOrder.ChangeStatusTo(StatusPartial)
-							rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
-							rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
-							continue
-						}
-
-						if err := eventProducer.PublishOrderEventBatch(append(restingOrderEvents, rawOrderEventForIncomingOrder)); err != nil {
-							zap.S().Errorw("Failed to publish order event batch", "error", err)
-						}
-						restingOrder.Filled.Add(fillQty)
-						incomingOrder.Filled.Add(fillQty)
-					}
-				}
-			} else {
+			if priceLevel.PriceLevel.LessThan(incomingOrder.Price) {
+				// All remaining bid levels are below the seller's minimum — cancel.
 				rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderCanceled, kafka.StatusCancelled)
-				if err := eventProducer.PublishOrderEvent(rawOrderEventForIncomingOrder); err != nil {
-					zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", incomingOrder.ID, "user_id", incomingOrder.UserID, "pair", incomingOrder.Pair)
-				}
+				cancelled = true
 				break
 			}
+
+			for idx := 0; idx < len(priceLevel.Orders); {
+				restingOrder := priceLevel.Orders[idx]
+				if restingOrder.UserID == incomingOrder.UserID {
+					idx++
+					continue // prevent self-order and money-washing
+				}
+
+				fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
+				if fillQty.IsZero() {
+					idx++
+					continue
+				}
+
+				rawOrderEventForRestingOrder := kafka.NewOrderEvent(
+					restingOrder.ID, restingOrder.UserID, restingOrder.Pair, kafka.OrderType(restingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
+					kafka.OrderSide(restingOrder.Side), restingOrder.Price, restingOrder.Quantity, restingOrder.Filled, restingOrder.Remaining(),
+				)
+
+				// Evaluate conditions before applying fills.
+				restingFilled := fillQty.GreaterThanOrEqual(restingOrder.Remaining())
+				incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
+
+				if restingFilled {
+					priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
+					rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
+					rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
+				} else {
+					restingOrder.ChangeStatusTo(StatusPartial)
+					rawOrderEventForRestingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
+					rawOrderEventForRestingOrder.UpdateOrderFilled(fillQty)
+					idx++
+				}
+				restingOrderEvents = append(restingOrderEvents, rawOrderEventForRestingOrder)
+
+				if incomingFilled {
+					incomingFullyFilled = true
+					rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
+					rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+				} else {
+					incomingOrder.ChangeStatusTo(StatusPartial)
+					rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
+					rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+				}
+
+				restingOrder.Filled = restingOrder.Filled.Add(fillQty)
+				incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
+
+				if incomingFullyFilled {
+					break sellLevelLoop
+				}
+			}
 		}
+
+		if incomingFullyFilled || cancelled || len(restingOrderEvents) > 0 {
+			allEvents := append(restingOrderEvents, rawOrderEventForIncomingOrder)
+			if err := eventProducer.PublishOrderEventBatch(allEvents); err != nil {
+				zap.S().Errorw("Failed to publish order event batch", "error", err)
+			}
+		}
+
+		ob.Bids.Levels = removeEmptyLevels(ob.Bids.Levels)
 	}
 
 	return nil, nil // return trade chan if there was any match.
+}
+
+// removeEmptyLevels filters out price levels that have no remaining orders.
+func removeEmptyLevels(levels []*PriceLevel) []*PriceLevel {
+	result := levels[:0]
+	for _, lvl := range levels {
+		if len(lvl.Orders) > 0 {
+			result = append(result, lvl)
+		}
+	}
+	return result
 }
 
 // TODO : implement it
