@@ -43,7 +43,7 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 				SkipMatchEngine:   true,
 				SkipMessageBroker: true,
 			})
-			selectedTopics := adapterkafka.CoinhubAllTopicsByEventTypes([]adapterkafka.EventType{
+			selectedTopics := adapterkafka.CoinhubAllOrderTopicsByEventTypes([]adapterkafka.EventType{
 				adapterkafka.EventOrderFilled,
 				adapterkafka.EventOrderPartial,
 				adapterkafka.EventOrderStatus,
@@ -78,11 +78,11 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 			}
 			runner := kafkaconsumer.NewRunner(
 				consumerClient,
-				func(handlerCtx context.Context, event adapterkafka.OrderStatusEvent, record *kgo.Record) error {
-					if err := order_event_usecases.ValidateStatusEvent(event); err != nil {
+				func(handlerCtx context.Context, event any, record *kgo.Record) error {
+					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
 						return err
 					}
-					return handler.Handle(handlerCtx, event, record)
+					return handler.Handle(handlerCtx, event.(kafka.OrderStatusEvent), record)
 				},
 				groupID,
 				3,

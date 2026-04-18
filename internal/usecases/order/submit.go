@@ -27,7 +27,7 @@ func NewOrderUsecases(txManager repositories.TxManager) *SubmitOrderUsecases {
 func (ou *SubmitOrderUsecases) SubmitOrder(
 	ctx context.Context,
 	matchEngine *engine.MatchEngine,
-	eventProducer *kafka.OrderEventProducer,
+	eventProducer *kafka.EngineEventProducer,
 	userID string,
 	pair string, // the pair here is in BTC-USDT format
 	orderType entities.OrderType,

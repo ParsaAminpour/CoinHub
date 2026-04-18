@@ -53,7 +53,7 @@ func RunOrderMatchEngine(configs *configs.Configuration) *cobra.Command {
 			// - Each pair have their own engine and run Match algorithm for each incoming orders comes to order channel - it's prevent Cancel race condition.
 			// - The engine will emit an even after it can match two sides to the event streamer (Kafka or just a buferred channel)
 			// - The consumer will take the event and update the DB and notify the userID client via socket.
-			if err := engine.SetupMatchEngine(ctx, &wg, app.OrderEventProducer, app.AssetRepository, app.OrderRepository, app.OrderMatchEngine, *app.Configs); err != nil {
+			if err := engine.SetupMatchEngine(ctx, &wg, app.EngineEventProducer, app.AssetRepository, app.OrderRepository, app.TradeRepository, app.OrderMatchEngine, *app.Configs); err != nil {
 				zap.S().Fatalw("an error occurred in match engine", "error", err)
 			}
 

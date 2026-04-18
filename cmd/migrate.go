@@ -26,6 +26,7 @@ func migrateDatabase(app *internal.Application) error {
 			&entities.TransferEvent{},
 			&entities.Order{},
 			&entities.ProcessedOrderEvent{},
+			&entities.Trade{},
 		}
 
 		zap.S().Debugw("starting migrations", zap.Int("count", len(mgModels)))

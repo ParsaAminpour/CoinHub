@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -9,32 +8,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// EventPublisher is the minimal interface the orderbook needs to emit order events.
-// *OrderEventProducer satisfies it; tests use a lightweight in-memory mock.
-type EventPublisher interface {
-	PublishOrderEvent(event OrderEvent) error
-	PublishOrderEventBatch(events []OrderEvent) error
-}
-
-type OrderEventProducer struct {
-	ctx      context.Context
-	producer *kgo.Client
-}
-
-func NewOrderEventProducer(ctx context.Context, kafkaClient *kgo.Client) *OrderEventProducer {
-	return &OrderEventProducer{
-		ctx:      ctx,
-		producer: kafkaClient,
-	}
-}
-
-func (oep *OrderEventProducer) publishOrderEvent(event OrderEvent) error {
+func (oep *EngineEventProducer) publishOrderEvent(event OrderEvent) error {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
 
-	topic := CoinhubEventDispatcher(event.GetEventHeader().EventType, event.GetSymbol())
+	topic := CoinhubOrderEventDispatcher(event.GetEventHeader().EventType, event.GetSymbol())
 	zap.S().Infow("the topic in producer", "topic", topic, "pair", event.GetSymbol())
 	record := &kgo.Record{
 		Topic: topic,
@@ -52,22 +32,18 @@ func (oep *OrderEventProducer) publishOrderEvent(event OrderEvent) error {
 	return nil
 }
 
-func (oep *OrderEventProducer) PublishOrderEvent(event OrderEvent) error {
+func (oep *EngineEventProducer) PublishOrderEvent(event OrderEvent) error {
 	if err := oep.publishOrderEvent(event); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (oep *OrderEventProducer) PublishOrderEventBatch(events []OrderEvent) error {
+func (oep *EngineEventProducer) PublishOrderEventBatch(events []OrderEvent) error {
 	for _, event := range events {
 		if err := oep.PublishOrderEvent(event); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (oep *OrderEventProducer) Close() {
-	oep.producer.Close()
 }

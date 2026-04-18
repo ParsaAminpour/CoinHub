@@ -12,6 +12,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// PlaceLimitOrderHTTPHandler godoc
+// @Summary      Place limit order
+// @Description  Submits a limit order to the matching engine and publishes an order event.
+// @Tags         order
+// @Accept       json
+// @Produce      json
+// @Param        request  body      schema.PlaceOrderRequest  true  "PlaceOrderRequest"
+// @Success      200      {object}  helper.SuccessResponse    "Order accepted"
+// @Failure      400      {object}  helper.ErrorResponse      "Invalid request body"
+// @Failure      401      {object}  helper.ErrorResponse      "Unauthorized"
+// @Failure      500      {object}  helper.ErrorResponse      "Internal server error"
+// @Router       /v1/order/limit [post]
 func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error {
 	var req schema.PlaceOrderRequest
 	responseHelper := helper.NewResponseHelper()
@@ -33,7 +45,7 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error
 	}
 	priceInDecimal, _ := decimal.NewFromString(req.Price)
 	qtyInDecimal, _ := decimal.NewFromString(req.Qty)
-	if err := orderUsecases.SubmitOrder(c, app.OrderMatchEngine, app.OrderEventProducer, user.ID.String(), req.Symbol, entities.OrderType(req.OrderType), entities.OrderSide(req.Side), priceInDecimal, qtyInDecimal); err != nil {
+	if err := orderUsecases.SubmitOrder(c, app.OrderMatchEngine, app.EngineEventProducer, user.ID.String(), req.Symbol, entities.OrderType(req.OrderType), entities.OrderSide(req.Side), priceInDecimal, qtyInDecimal); err != nil {
 		return err
 	}
 

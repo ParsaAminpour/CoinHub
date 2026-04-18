@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type MessageHandler func(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error
+type MessageHandler func(ctx context.Context, event any, record *kgo.Record) error
 
 type Runner struct {
 	client        *kgo.Client

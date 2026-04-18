@@ -62,6 +62,7 @@ type Application struct {
 	AssetRepository         repositories.AssetRepository
 	OrderRepository         repositories.OrderRepository
 	TradingPairRepository   repositories.TradingPairRepository
+	TradeRepository         repositories.TradeRepository
 	TxManager               repositories.TxManager
 
 	WalletService services.WalletService // access hdWallet and ethclient with its service
@@ -80,7 +81,7 @@ type Application struct {
 	AsynqServer    *asynq.Server
 
 	// Message Broker configuration
-	OrderEventProducer *kafka.OrderEventProducer
+	EngineEventProducer *kafka.EngineEventProducer
 	OrderEventConsumer *kafka.OrderEventConsumer // we don't need this
 	KafkaTopicManager  *kafka.TopicManager
 
@@ -185,8 +186,8 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 }
 
 func (app *Application) Shutdown() {
-	if app.OrderEventProducer != nil {
-		app.OrderEventProducer.Close()
+	if app.EngineEventProducer != nil {
+		app.EngineEventProducer.Close()
 	}
 	if app.OrderMatchEngine != nil {
 		app.OrderMatchEngine.Close()
@@ -219,13 +220,13 @@ func (app *Application) registerMessageStreamer(ctx context.Context) error {
 		return fmt.Errorf("failed to get active trading pairs count for topic sync: %w", err)
 	}
 	if pairCount > 0 {
-		if err := topicManager.SyncPartitions(ctx, kafka.CoinhubAllCurrentTopics(), pairCount); err != nil {
+		if err := topicManager.SyncPartitions(ctx, kafka.CoinhubAllCurrentOrderTopics(), pairCount); err != nil {
 			return fmt.Errorf("failed to sync kafka topic partitions: %w", err)
 		}
 	}
 	app.KafkaTopicManager = topicManager
 
-	app.OrderEventProducer = kafka.NewOrderEventProducer(ctx, producerClient)
+	app.EngineEventProducer = kafka.NewEngineEventProducer(ctx, producerClient)
 	zap.S().Info("Kafka Message Broker initialized and registered✅")
 	return nil
 }
@@ -263,6 +264,7 @@ func (app *Application) registerRepositories() error {
 	app.AssetRepository = repository.NewAssetRepository(app.MySqlGorm)
 	app.OrderRepository = repository.NewOrderRepository(app.MySqlGorm)
 	app.TradingPairRepository = repository.NewTradingPairRepository(app.MySqlGorm)
+	app.TradeRepository = repository.NewTradeRepository(app.MySqlGorm)
 	app.TxManager = repository.NewGormUnitOfWork(app.MySqlGorm)
 	zap.S().Infow("Repositories registered ✅")
 	return nil

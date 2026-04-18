@@ -113,7 +113,7 @@ type Orderbook struct {
 // no suitable opposing orders to match.
 //
 // Parameters:
-//   - eventProducer: The kafka OrderEventProducer for broadcasting order and trade events.
+//   - eventProducer: The kafka EventPublisher for broadcasting order and trade events.
 //   - incomingOrder: The new incoming limit order to be matched against the current orderbook.
 //
 // Returns:
@@ -139,11 +139,14 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 				if bestOrder.UserID == incomingOrder.UserID { // prevent self-order and money-washing
 					continue
 				}
+				fillQty := decimal.Min(bestOrder.Remaining(), incomingOrder.Remaining())
 				rawOrderEventForBestOrder := kafka.NewOrderEvent(
 					bestOrder.ID, bestOrder.UserID, bestOrder.Pair, kafka.OrderType(bestOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
-				fillQty := decimal.Min(bestOrder.Remaining(), incomingOrder.Remaining())
+				rawTradeEvent := kafka.NewTradeStatusEvent(
+					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+				)
 
 				if !fillQty.IsZero() {
 					// Evaluate fill conditions before updating the filled amounts.
@@ -154,6 +157,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 						ob.Asks.PopFront()
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
+						rawTradeEvent.MakerFilled = true
 					} else {
 						bestOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
@@ -164,6 +168,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 						incomingFullyFilled = true
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+						rawTradeEvent.TakerFilled = true
 					} else {
 						incomingOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
@@ -175,6 +180,12 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 
 					if err := eventProducer.PublishOrderEventBatch([]kafka.OrderEvent{rawOrderEventForBestOrder, rawOrderEventForIncomingOrder}); err != nil {
 						zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", bestOrder.ID, "user_id", bestOrder.UserID, "pair", bestOrder.Pair)
+					}
+					if rawTradeEvent.MakerFilled || rawTradeEvent.TakerFilled {
+						if err := eventProducer.PublishTradeStatusEvent(rawTradeEvent); err != nil {
+							zap.S().Errorw("failed to publish trade event", "error", err, "maker_order_id", bestOrder.ID, "taker_order_id", incomingOrder.ID, "pair", incomingOrder.Pair)
+
+						}
 					}
 					if incomingFullyFilled {
 						break
@@ -217,6 +228,9 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					bestOrder.ID, bestOrder.UserID, bestOrder.Pair, kafka.OrderType(bestOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
+				rawTradeEvent := kafka.NewTradeStatusEvent(
+					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+				)
 
 				if !fillQty.IsZero() {
 					// Evaluate fill conditions before updating the filled amounts.
@@ -227,6 +241,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 						ob.Bids.PopFront()
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForBestOrder.UpdateOrderFilled(fillQty)
+						rawTradeEvent.MakerFilled = true
 					} else {
 						bestOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForBestOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
@@ -237,6 +252,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 						incomingFullyFilled = true
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderFilled, kafka.StatusFilled)
 						rawOrderEventForIncomingOrder.UpdateOrderFilled(fillQty)
+						rawTradeEvent.TakerFilled = true
 					} else {
 						incomingOrder.ChangeStatusTo(StatusPartial)
 						rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderPartial, kafka.StatusPartial)
@@ -245,6 +261,11 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 
 					if err := eventProducer.PublishOrderEventBatch([]kafka.OrderEvent{rawOrderEventForBestOrder, rawOrderEventForIncomingOrder}); err != nil {
 						zap.S().Errorw("failed to publish order status change event", "error", err, "order_id", bestOrder.ID, "user_id", bestOrder.UserID, "pair", bestOrder.Pair)
+					}
+					if rawTradeEvent.MakerFilled || rawTradeEvent.TakerFilled {
+						if err := eventProducer.PublishTradeStatusEvent(rawTradeEvent); err != nil {
+							zap.S().Errorw("failed to publish trade status event", "error", err, "maker_order_id", bestOrder.ID, "taker_order_id", incomingOrder.ID, "pair", incomingOrder.Pair)
+						}
 					}
 
 					bestOrder.Filled = bestOrder.Filled.Add(fillQty)
@@ -294,6 +315,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 
 		// Accumulates one event per consumed resting order; published as a single batch.
 		restingOrderEvents := make([]kafka.OrderEvent, 0)
+		tradeEvents := make([]kafka.TradeStatusEvent, 0)
 		incomingFullyFilled := false
 		cancelled := false
 
@@ -314,7 +336,9 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 					continue
 				}
 
-				fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
+				makerRemainingBefore := restingOrder.Remaining()
+				takerRemainingBefore := incomingOrder.Remaining()
+				fillQty := decimal.Min(makerRemainingBefore, takerRemainingBefore)
 				if fillQty.IsZero() {
 					idx++
 					continue
@@ -326,8 +350,23 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				)
 
 				// Evaluate conditions before applying fills.
-				restingFilled := fillQty.GreaterThanOrEqual(restingOrder.Remaining())
-				incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
+				restingFilled := fillQty.GreaterThanOrEqual(makerRemainingBefore)
+				incomingFilled := fillQty.GreaterThanOrEqual(takerRemainingBefore)
+
+				makerRemainingAfter := makerRemainingBefore.Sub(fillQty)
+				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
+
+				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.ID,
+					incomingOrder.ID,
+					incomingOrder.Pair,
+					restingOrder.Price, // market trades at maker/resting price
+					fillQty,
+					restingFilled,
+					incomingFilled,
+					makerRemainingAfter,
+					takerRemainingAfter,
+				))
 
 				if restingFilled {
 					priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
@@ -367,6 +406,11 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 			if err := eventProducer.PublishOrderEventBatch(allEvents); err != nil {
 				zap.S().Errorw("Failed to publish order event batch", "error", err)
 			}
+			if len(tradeEvents) > 0 {
+				if err := eventProducer.PublishTradeStatusEventBatch(tradeEvents); err != nil {
+					zap.S().Errorw("Failed to publish trade event batch", "error", err)
+				}
+			}
 		}
 
 		// Remove price levels that were fully drained.
@@ -383,6 +427,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 		)
 
 		restingOrderEvents := make([]kafka.OrderEvent, 0)
+		tradeEvents := make([]kafka.TradeStatusEvent, 0)
 		incomingFullyFilled := false
 		cancelled := false
 
@@ -402,7 +447,9 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 					continue // prevent self-order and money-washing
 				}
 
-				fillQty := decimal.Min(restingOrder.Remaining(), incomingOrder.Remaining())
+				makerRemainingBefore := restingOrder.Remaining()
+				takerRemainingBefore := incomingOrder.Remaining()
+				fillQty := decimal.Min(makerRemainingBefore, takerRemainingBefore)
 				if fillQty.IsZero() {
 					idx++
 					continue
@@ -414,8 +461,23 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				)
 
 				// Evaluate conditions before applying fills.
-				restingFilled := fillQty.GreaterThanOrEqual(restingOrder.Remaining())
-				incomingFilled := fillQty.GreaterThanOrEqual(incomingOrder.Remaining())
+				restingFilled := fillQty.GreaterThanOrEqual(makerRemainingBefore)
+				incomingFilled := fillQty.GreaterThanOrEqual(takerRemainingBefore)
+
+				makerRemainingAfter := makerRemainingBefore.Sub(fillQty)
+				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
+
+				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.ID,
+					incomingOrder.ID,
+					incomingOrder.Pair,
+					restingOrder.Price, // market trades at maker/resting price
+					fillQty,
+					restingFilled,
+					incomingFilled,
+					makerRemainingAfter,
+					takerRemainingAfter,
+				))
 
 				if restingFilled {
 					priceLevel.RemoveFilledOrderInPriceLevel(incomingOrder.Side, idx)
@@ -452,6 +514,11 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 			allEvents := append(restingOrderEvents, rawOrderEventForIncomingOrder)
 			if err := eventProducer.PublishOrderEventBatch(allEvents); err != nil {
 				zap.S().Errorw("Failed to publish order event batch", "error", err)
+			}
+			if len(tradeEvents) > 0 {
+				if err := eventProducer.PublishTradeStatusEventBatch(tradeEvents); err != nil {
+					zap.S().Errorw("Failed to publish trade event batch", "error", err)
+				}
 			}
 		}
 

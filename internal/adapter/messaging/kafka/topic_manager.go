@@ -79,5 +79,5 @@ func (tm *TopicManager) SyncPartitions(ctx context.Context, topics []string, tar
 // OnNewPair must be called after a new trading pair is persisted to the database.
 // newTotalPairCount is the updated total number of active trading pairs.
 func (tm *TopicManager) OnNewPair(ctx context.Context, newTotalPairCount int32) error {
-	return tm.SyncPartitions(ctx, CoinhubAllCurrentTopics(), newTotalPairCount)
+	return tm.SyncPartitions(ctx, CoinhubAllCurrentOrderTopics(), newTotalPairCount)
 }
