@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// TODO - Critical : the Claims should be based on UserID
 type Claims struct {
 	Username string `json:"username"`
 	jwt.RegisteredClaims

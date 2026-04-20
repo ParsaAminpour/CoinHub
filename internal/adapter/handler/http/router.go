@@ -4,6 +4,10 @@ import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/handler/http/helper"
 	"coinhub/internal/adapter/handler/http/schema"
+	coinhub_ws "coinhub/internal/adapter/handler/websockets"
+	"coinhub/internal/adapter/handler/websockets/notification"
+	"coinhub/internal/domain/entities"
+	"coinhub/internal/domain/repositories"
 	"coinhub/internal/infrastructure/security"
 	"net/http"
 
@@ -15,10 +19,12 @@ import (
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
+	"nhooyr.io/websocket"
 )
 
 type apiGetHandlerSignature func(c *gin.Context, app *internal.Application) error
 type apiPostHandlerSignature func(c *gin.Context, app *internal.Application) error
+type apiWebsocketHandlerSignature func(c *gin.Context, client *coinhub_ws.Client) error
 
 func apiGetHandler(_handler apiGetHandlerSignature, app *internal.Application) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -32,6 +38,50 @@ func apiPostHandler(_handler apiPostHandlerSignature, app *internal.Application)
 	}
 }
 
+func apiWebsocketHandler(_handlerReadLoop apiWebsocketHandlerSignature, userRepository repositories.UserRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		username, exist := c.Get("username")
+		if !exist {
+			zap.S().Infow("username missing in context")
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		// Pass the raw http.ResponseWriter to websocket.Accept, bypassing gin's wrapper.
+		// nhooyr.io/websocket calls WriteHeaderNow() on gin's writer before Hijack(),
+		// which marks the response as written and causes gin's own Hijack() to fail.
+		// Unwrap() is on the concrete *responseWriter struct, not the interface, so we
+		// reach it via a local interface assertion.
+		type unwrappable interface{ Unwrap() http.ResponseWriter }
+		rawWriter, ok := c.Writer.(unwrappable)
+		if !ok {
+			zap.S().Errorw("response writer is not unwrappable")
+			c.AbortWithStatus(http.StatusInternalServerError)
+			return
+		}
+		conn, err := websocket.Accept(rawWriter.Unwrap(), c.Request, &websocket.AcceptOptions{
+			InsecureSkipVerify: true, // TODO : lock this down to actual origin in prod.
+		})
+		if err != nil {
+			zap.S().Errorw("failed to accept websocket connection", "error", err)
+			return
+		}
+		defer conn.CloseNow()
+		conn.SetReadLimit(notification.MAX_MSG_BYTES)
+
+		var user entities.User
+		if err := userRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
+			zap.S().Errorw("failed to get user for websocket", "error", err)
+			conn.Close(websocket.StatusInternalError, "user lookup failed")
+			return
+		}
+
+		client := coinhub_ws.NewClient(user.ID.String(), username.(string), conn)
+		_handlerReadLoop(c, client)
+	}
+}
+
+// TODO : add health check routes.
 func SetupRouter(app *internal.Application) error {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
@@ -100,6 +150,17 @@ func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, app))
 	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, app))
 	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, app))
+
+	// register websocket routes assocaited to the orders.
+	if err := registerOrderWebsocketRoutes(orderGroup, app); err != nil {
+		return err
+	}
+	return nil
+}
+
+func registerOrderWebsocketRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	eventsGroup := r.Group("/events")
+	eventsGroup.GET("/ws", apiWebsocketHandler(app.WebsocketNotificationServer.OrderEventEmitterWebsocketListener, app.UserRepository))
 	return nil
 }
 
