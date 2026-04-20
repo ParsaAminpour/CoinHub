@@ -38,9 +38,8 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error
 	if !exist {
 		zap.S().Infow("username missing in context")
 	}
-	zap.S().Infow("username from context", "username", username)
 
-	orderUsecases := order_usercases.NewOrderUsecases(*&app.TxManager)
+	orderUsecases := order_usercases.NewOrderUsecases(app.TxManager)
 	if err := app.UserRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
 		return err
 	}
@@ -88,7 +87,6 @@ func PlaceMarketOrderHTTPHandler(c *gin.Context, app *internal.Application) erro
 	if !exist {
 		zap.S().Infow("username missing in context")
 	}
-	zap.S().Infow("username from context", "username", username)
 
 	baseUrl, quoteUrl := strings.Split(req.Symbol, "-")[0], strings.Split(req.Symbol, "-")[1]
 	orderUsecases := order_usercases.NewOrderUsecases(*&app.TxManager)
@@ -124,9 +122,54 @@ func PlaceMarketOrderHTTPHandler(c *gin.Context, app *internal.Application) erro
 		"side", req.Side,
 		"qty", req.Qty,
 	)
+
+	responseHelper.SuccessStandard(c, helper.SuccessResponse{
+		Success: true,
+		Message: "Market order accepted",
+	})
 	return nil
 }
 
+// CancelOrderHTTPHandler godoc
+// @Summary      Cancel an order
+// @Description  Cancels an active limit order by order ID or client order ID.
+// @Tags         order
+// @Accept       json
+// @Produce      json
+// @Param        request  body      schema.CancelOrderRequest  true  "CancelOrderRequest"
+// @Success      200      {object}  helper.SuccessResponse     "Order cancelled"
+// @Failure      400      {object}  helper.ErrorResponse       "Invalid request body"
+// @Failure      401      {object}  helper.ErrorResponse       "Unauthorized"
+// @Failure      500      {object}  helper.ErrorResponse       "Internal server error"
+// @Router       /v1/order/cancel [delete]
 func CancelOrderHTTPHandler(c *gin.Context, app *internal.Application) error {
+	var req schema.CancelOrderRequest
+	responseHelper := helper.NewResponseHelper()
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		zap.S().Error("Failed to bind cancel order request: ", err)
+		responseHelper.InvalidRequestBody(c)
+		return err
+	}
+
+	var user entities.User
+	username, exist := c.Get("username")
+	if !exist {
+		zap.S().Infow("username missing in context")
+	}
+	if err := app.UserRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
+		zap.S().Error("Failed to get user by username: ", err)
+		return err
+	}
+	orderUsecases := order_usercases.NewOrderUsecases(app.TxManager)
+	if err := orderUsecases.CancelLimitOrder(c, app.OrderMatchEngine, app.EngineEventProducer, user.ID.String(), req.Symbol, entities.OrderTypeCancel, entities.OrderSide(req.Side), decimal.Zero, decimal.Zero); err != nil {
+		zap.S().Error("Failed to cancel order: ", err)
+		return err
+	}
+
+	responseHelper.SuccessStandard(c, helper.SuccessResponse{
+		Success: true,
+		Message: "cancel order request sent",
+	})
 	return nil
 }

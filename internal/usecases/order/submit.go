@@ -10,21 +10,10 @@ import (
 	"strings"
 
 	"github.com/shopspring/decimal"
-	"go.uber.org/zap"
 )
 
-type SubmitOrderUsecases struct {
-	txManager repositories.TxManager
-}
-
-func NewOrderUsecases(txManager repositories.TxManager) *SubmitOrderUsecases {
-	return &SubmitOrderUsecases{
-		txManager: txManager,
-	}
-}
-
 // it creates an open order in DB and add an submitted event to the Broker.
-func (ou *SubmitOrderUsecases) SubmitOrder(
+func (ou *OrderUsecases) SubmitOrder(
 	ctx context.Context,
 	matchEngine *engine.MatchEngine,
 	eventProducer *kafka.EngineEventProducer,
@@ -36,8 +25,12 @@ func (ou *SubmitOrderUsecases) SubmitOrder(
 	quantity decimal.Decimal) error {
 	// register it on DB
 	return ou.txManager.WithinTransaction(ctx, func(ctx context.Context, tx repositories.Tx) error {
-		formattedPairForDB := fmt.Sprintf("%s/%s", strings.Split(pair, "-")[0], strings.Split(pair, "-")[1])
-		zap.S().Infow("Formatted trading pair for DB", "formattedPairForDB", formattedPairForDB)
+		var formattedPairForDB string
+		if strings.Contains(pair, "/") || strings.Contains(pair, "-") {
+			formattedPairForDB = fmt.Sprintf("%s/%s", strings.Split(pair, "-")[0], strings.Split(pair, "-")[1])
+		} else {
+			return fmt.Errorf("pair has wrong format neither 'X-Y' nor 'X/Y' format")
+		}
 
 		orderEntity := entities.NewOrder(userID, formattedPairForDB, orderType, side, price, quantity)
 		if err := tx.Orders().CreateOrder(ctx, orderEntity); err != nil {

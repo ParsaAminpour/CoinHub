@@ -3,6 +3,7 @@ package engine
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -24,6 +25,7 @@ const (
 	StatusCancelled OrderStatus = "cancelled"
 )
 
+// NOTE : the price and quntitiy section would be decimal.Zero if the order type was cancel.
 type Order struct {
 	ID        string
 	UserID    string
@@ -46,6 +48,7 @@ func NewOrder(
 	quantity decimal.Decimal,
 ) *Order {
 	return &Order{
+		ID:        uuid.NewString(),
 		UserID:    userID,
 		Pair:      pair,
 		Type:      orderType,

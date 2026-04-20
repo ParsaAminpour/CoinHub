@@ -158,6 +158,12 @@ func registerValidators() error {
 		v.RegisterValidation("lastnamecheck", schema.LastnameCheck)
 		v.RegisterValidation("emailcheck", schema.EmailCheck)
 		v.RegisterValidation("walletaddresscheck", schema.WalletAddressCheck)
+		v.RegisterValidation("decimal_gt0", schema.DecimalGT0Check)
+		v.RegisterValidation("client_ord_id", schema.ClientOrdIDCheck)
+		v.RegisterValidation("symbol_format", schema.SymbolFormatCheck)
+		v.RegisterValidation("future_time", schema.FutureTimeCheck)
+		v.RegisterStructValidation(schema.ValidatePlaceOrderRequest, schema.PlaceOrderRequest{})
+		v.RegisterStructValidation(schema.ValidateCancelOrderRequest, schema.CancelOrderRequest{})
 	}
 	return nil
 }

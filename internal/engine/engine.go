@@ -2,7 +2,6 @@ package engine
 
 import (
 	"coinhub/internal/adapter/messaging/kafka"
-	"strings"
 
 	adapterkafka "coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/domain/repositories"
@@ -34,7 +33,6 @@ type Engine interface {
 	orderMainConsumer(ctx context.Context, kafkaProducer *kafka.EngineEventProducer, orderRepository *repositories.OrderRepository, tradeRepository *repositories.TradeRepository, configs configs.Configuration, workerID string) error
 	SubmitOrder(eventProducer *kafka.EngineEventProducer, order Order) error
 	orderHandlerWorker(ctx context.Context, eventProducer *kafka.EngineEventProducer, pair string, ch chan *Order)
-	TradeChConsumer(ctx context.Context) error
 	Close()
 	// OrderDispatcher(ctx context.Context, kafkaClient *kafka.OrderEventProducer, order *Order) error
 }
@@ -54,7 +52,6 @@ func (r *OrderRouter) addOrder(pair string, order *Order) {
 
 type MatchEngine struct {
 	Orderbooks map[string]*Orderbook // one Orderbook per trading pair, e.g. "BTC-USDT" -> *Orderbook
-	TradeChan  chan Trade            // Remove it till we use another process for running engine.
 
 	OrderRouter        *OrderRouter
 	OrderEventProducer *kafka.EngineEventProducer
@@ -77,17 +74,6 @@ func NewSupportedPairLight(id string, symbol string) *SupportedPairLight {
 	return supportedAssetLight
 }
 
-func (a *SupportedPairLight) fixSupportedPairLight() error {
-	if !strings.Contains(*a.Symbol, "-") {
-		if !strings.Contains(*a.Symbol, "/") || len(strings.Split(*a.Symbol, "/")) != 2 {
-			return fmt.Errorf("the asset symbol format is incorrect %s", *a.Symbol)
-		}
-		formattedSymbol := fmt.Sprintf("%s-%s", strings.Split(*a.Symbol, "/")[0], strings.Split(*a.Symbol, "/")[1])
-		a.Symbol = &formattedSymbol
-	}
-	return nil
-}
-
 // TODO : handle the errors too.
 func NewMatchEngine(ctx context.Context, configs configs.Configuration, availableAssets []SupportedPairLight) Engine {
 	orderEventProduced, _ := initializeEventProducer(ctx, configs)
@@ -95,7 +81,6 @@ func NewMatchEngine(ctx context.Context, configs configs.Configuration, availabl
 	orderbooks := initializeOrderbooks(availableAssets)
 	return &MatchEngine{
 		Orderbooks:         orderbooks,
-		TradeChan:          make(chan Trade, TradeChanBufferSize),
 		OrderRouter:        orderRouter,
 		OrderEventProducer: orderEventProduced,
 	}
@@ -114,15 +99,6 @@ func initializeOrderbooks(availableAssets []SupportedPairLight) map[string]*Orde
 	return orderbooks
 }
 
-func (me *MatchEngine) Close() {
-	if me.OrderEventProducer != nil {
-		me.OrderEventProducer.Close()
-	}
-	if me.OrderEventConsumer != nil {
-		me.OrderEventConsumer.Close()
-	}
-}
-
 func initializeEventProducer(ctx context.Context, configs configs.Configuration) (*kafka.EngineEventProducer, error) {
 	producerClient, err := kgo.NewClient(kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)))
 	if err != nil {
@@ -137,10 +113,10 @@ func initializeEventProducer(ctx context.Context, configs configs.Configuration)
 }
 
 func initializeOrderSubmittionEventConsumer(ctx context.Context, configs configs.Configuration) (*kafka.OrderEventConsumer, error) {
-	selectedTopics := kafka.CoinHubOrderSubmittedTopic("")
+	selectedTopics := []string{kafka.CoinHubOrderSubmittedTopic(""), kafka.CoinHubOrderCanceledTopic("")}
 	consumerClient, err := kgo.NewClient(
 		kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
-		kgo.ConsumeTopics(selectedTopics),
+		kgo.ConsumeTopics(selectedTopics...),
 		kgo.ConsumerGroup(kafka.OrderSubmittedConsumerGroupID),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtEnd()),
 	)
@@ -197,6 +173,28 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.EngineEventProducer, inc
 	return nil
 }
 
+func (me *MatchEngine) SubmitCancelOrder(eventProducer *kafka.EngineEventProducer, incomingCancelOrder Order) error {
+	zap.S().Infow("Submitting cancel order to match engine", "orderID", incomingCancelOrder.ID, "userID", incomingCancelOrder.UserID, "pair", incomingCancelOrder.Pair, "type", incomingCancelOrder.Type, "side", incomingCancelOrder.Side, "price", incomingCancelOrder.Price, "quantity", incomingCancelOrder.Quantity)
+	rawCancelOrderEvent := kafka.NewOrderEvent(
+		incomingCancelOrder.ID,
+		incomingCancelOrder.UserID,
+		incomingCancelOrder.Pair,
+		kafka.OrderType(incomingCancelOrder.Type),
+		kafka.StatusCancelled,
+		kafka.EventOrderCanceled,
+		kafka.OrderSide(incomingCancelOrder.Side),
+		incomingCancelOrder.Price,
+		incomingCancelOrder.Quantity,
+		incomingCancelOrder.Filled,
+		incomingCancelOrder.Remaining(),
+	)
+	if err := eventProducer.PublishOrderEvent(rawCancelOrderEvent); err != nil {
+		zap.S().Errorw("Failed to publish cancel order event", "error", err, "orderID", incomingCancelOrder.ID)
+		return fmt.Errorf("failed to publish cancel order event: %w", err)
+	}
+	return nil
+}
+
 func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.EngineEventProducer, order Order) error {
 	ob, ok := me.Orderbooks[order.Pair]
 	if !ok {
@@ -210,7 +208,7 @@ func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.EngineEventProducer,
 	case OrderTypeMarket:
 		_, err = ob.MatchMarket(eventProducer, order)
 	case OrderTypeCancel:
-		_, err = ob.Cancel(order)
+		_, err = ob.Cancel(context.Background(), nil, order)
 	}
 	return err
 }
@@ -232,14 +230,10 @@ func (me *MatchEngine) orderHandlerWorker(ctx context.Context, eventProducer *ka
 		if err := me.orderTypeRouter(eventProducer, *order); err != nil {
 			zap.S().Error("Failed to process order", err)
 		}
-
-		// the order will process and if there was any results, it will issue an FILLED event to the Broker.
-		// the consumers will use it to update the DB and notify the user via the websocket.
 	}
 }
 
 func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.EngineEventProducer, event adapterkafka.OrderStatusEvent) error {
-	// TODOD : implement it...
 	zap.S().Infow("orderRouter received event",
 		"event_id", event.EventID,
 		"order_id", event.ID,
@@ -257,7 +251,6 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.EngineEventPro
 		"event_occured_at", event.OccuredAt,
 	)
 
-	// TODO : routes the order to its appropriate goroutine (map[pair:string]chan)
 	order := NewOrder(
 		event.UserID,
 		event.Pair,
@@ -367,13 +360,6 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 	return nil
 }
 
-func (me *MatchEngine) TradeChConsumer(ctx context.Context) error {
-	for _ = range me.TradeChan {
-		// implement here...
-	}
-	return nil
-}
-
 func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.EngineEventProducer, assetRepository repositories.AssetRepository, orderRepository repositories.OrderRepository, tradeRepository repositories.TradeRepository, matchEngine *MatchEngine, configs configs.Configuration) error {
 	zap.S().Info("Setting up match engine...")
 	if err := matchEngine.Run(ctx, wg, kafkaProducer, &assetRepository, &orderRepository, &tradeRepository, configs); err != nil {
@@ -387,9 +373,11 @@ func (me *MatchEngine) CloseOrderbookGracefuly(ctx context.Context) error {
 	return nil
 }
 
-// should return the trades, the orders that get matched and become filled or partial
-// wire the channels and orderbook matching algorithm with eachothers.
-// func (me *MatchEngine) RunMatchEngineForPair(ctx context.Context) error {
-
-// 	return nil
-// }
+func (me *MatchEngine) Close() {
+	if me.OrderEventProducer != nil {
+		me.OrderEventProducer.Close()
+	}
+	if me.OrderEventConsumer != nil {
+		me.OrderEventConsumer.Close()
+	}
+}

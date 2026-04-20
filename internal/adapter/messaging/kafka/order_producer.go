@@ -29,6 +29,15 @@ func (oep *EngineEventProducer) publishOrderEvent(event OrderEvent) error {
 	if err := oep.producer.ProduceSync(oep.ctx, record).FirstErr(); err != nil {
 		return err
 	}
+	zap.S().Infow("Order event published",
+		"event_type", event.GetEventHeader().EventType,
+		"event_id", event.GetEventHeader().EventID,
+		"event_version", event.GetEventHeader().Version,
+		"symbol", event.GetSymbol(),
+		"base_asset", event.GetBaseAsset(),
+		"quote_asset", event.GetQuoteAsset(),
+		"topic", topic,
+	)
 	return nil
 }
 
