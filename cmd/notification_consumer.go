@@ -3,7 +3,6 @@ package cmd
 import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/messaging/kafka"
-	adapterkafka "coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/infrastructure/configs"
 	kafkaconsumer "coinhub/internal/infrastructure/kafka/consumer"
 	"coinhub/internal/usecases/order_event_usecases"
@@ -42,13 +41,11 @@ func RunNotificationConsumer(configs *configs.Configuration) *cobra.Command {
 				SkipMatchEngine:   true,
 				SkipMessageBroker: true,
 			})
-			topic := adapterkafka.CoinHubOrderStatusTopic(pair)
-			dlqTopic := fmt.Sprintf("%s.dlq", topic)
-			zap.S().Infow("notification consumer subscribing", "topic", topic, "group_id", groupID)
 
+			topics := kafka.CoinhubAllCurrentOrderTopics()
 			consumerClient, err := kgo.NewClient(
 				kgo.SeedBrokers(fmt.Sprintf("%s:%s", configs.MessageBroker.MessageStreamerHost, configs.MessageBroker.MessageStreamerPort)),
-				kgo.ConsumeTopics(topic),
+				kgo.ConsumeTopics(topics...),
 				kgo.ConsumerGroup(groupID),
 				kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 			)
@@ -82,12 +79,18 @@ func RunNotificationConsumer(configs *configs.Configuration) *cobra.Command {
 					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
 						return err
 					}
-					return handler.Handle(handlerCtx, event.(kafka.OrderStatusEvent), record)
+					if err := handler.HandleNotificationForOrders(handlerCtx, event.(kafka.OrderStatusEvent), record, app.WebsocketNotificationServer); err != nil {
+						return err
+					}
+					if err := handler.HandleNotificationForTrades(handlerCtx, event.(kafka.TradeStatusEvent), record, app.WebsocketNotificationServer); err != nil {
+						return err
+					}
+					return nil
 				},
 				groupID,
 				3,
 				2*time.Second,
-			).WithDLQ(dlqProducerClient, dlqTopic)
+			).WithDLQ(dlqProducerClient, kafka.OrderProjectionConsumerDLQTopic)
 
 			closeSignal := make(chan os.Signal, 1)
 			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)

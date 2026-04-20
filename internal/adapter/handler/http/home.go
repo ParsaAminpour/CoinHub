@@ -30,7 +30,7 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 	event := kafka.NewOrderEvent(
 		uuid.NewString(),
 		"mockUserID",
-		"BTC-USDT",
+		"ETH-USDT",
 		kafka.OrderTypeLimit,
 		kafka.StatusFilled,
 		kafka.EventOrderFilled,

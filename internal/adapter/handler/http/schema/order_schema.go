@@ -25,7 +25,7 @@ type PlaceOrderRequest struct {
 	RequestID   string      `json:"request_id"    validate:"omitempty,uuid4"`
 }
 
-func validateDecimalGT0(fl validator.FieldLevel) bool {
+var DecimalGT0Check validator.Func = func(fl validator.FieldLevel) bool {
 	raw := strings.TrimSpace(fl.Field().String())
 	if raw == "" {
 		return false
@@ -37,7 +37,7 @@ func validateDecimalGT0(fl validator.FieldLevel) bool {
 	return d.IsPositive()
 }
 
-func validateClientOrdID(fl validator.FieldLevel) bool {
+var ClientOrdIDCheck validator.Func = func(fl validator.FieldLevel) bool {
 	for _, r := range fl.Field().String() {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' && r != '_' {
 			return false
@@ -46,7 +46,7 @@ func validateClientOrdID(fl validator.FieldLevel) bool {
 	return true
 }
 
-func validateSymbolFormat(fl validator.FieldLevel) bool {
+var SymbolFormatCheck validator.Func = func(fl validator.FieldLevel) bool {
 	parts := strings.Split(fl.Field().String(), "-")
 	if len(parts) != 2 {
 		return false
@@ -64,7 +64,7 @@ func validateSymbolFormat(fl validator.FieldLevel) bool {
 	return true
 }
 
-func validateFutureTime(fl validator.FieldLevel) bool {
+var FutureTimeCheck validator.Func = func(fl validator.FieldLevel) bool {
 	field := fl.Field()
 	if field.Kind() == reflect.Ptr {
 		if field.IsNil() {
@@ -79,7 +79,7 @@ func validateFutureTime(fl validator.FieldLevel) bool {
 	return t.After(time.Now().UTC())
 }
 
-func validatePlaceOrderRequest(sl validator.StructLevel) {
+func ValidatePlaceOrderRequest(sl validator.StructLevel) {
 	req, ok := sl.Current().Interface().(PlaceOrderRequest)
 	if !ok {
 		return
@@ -134,6 +134,30 @@ func validatePlaceOrderRequest(sl validator.StructLevel) {
 	if req.TimeInForce != GTD && req.ExpireAt != nil {
 		sl.ReportError(req.ExpireAt, "expire_at", "ExpireAt", "expire_at_only_valid_for_gtd", "")
 	}
+}
+
+type CancelOrderRequest struct {
+	OrderID     int64  `json:"order_id"      validate:"required,gt=0"`
+	ClientOrdID string `json:"client_ord_id" validate:"omitempty,max=36,client_ord_id"`
+	Symbol      string `json:"symbol"        validate:"required,symbol_format"`
+	Side        Side   `json:"side"          validate:"required,oneof=BUY SELL"`
+}
+
+func ValidateCancelOrderRequest(sl validator.StructLevel) {
+	req, ok := sl.Current().Interface().(CancelOrderRequest)
+	if !ok {
+		return
+	}
+	if req.OrderID == 0 && strings.TrimSpace(req.ClientOrdID) == "" {
+		sl.ReportError(req.OrderID, "order_id", "OrderID", "order_id_or_client_ord_id_required", "")
+	}
+}
+
+type CancelOrderResponse struct {
+	OrderID     int64       `json:"order_id"`
+	ClientOrdID string      `json:"client_ord_id,omitempty"`
+	Symbol      string      `json:"symbol"`
+	Status      OrderStatus `json:"status"`
 }
 
 type OrderResponse struct {

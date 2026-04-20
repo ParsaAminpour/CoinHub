@@ -2,6 +2,9 @@ package engine
 
 import (
 	"coinhub/internal/adapter/messaging/kafka"
+	"coinhub/internal/domain/entities"
+	"coinhub/internal/domain/repositories"
+	"context"
 	"errors"
 	"sync"
 
@@ -28,6 +31,16 @@ func NewPriceLevel(orders []*Order, price decimal.Decimal) *PriceLevel {
 
 func (pl *PriceLevel) BestOrderInPriceLevel() (*Order, error) {
 	return pl.Orders[len(pl.Orders)], nil
+}
+
+func (pl *PriceLevel) RemoveOrderInPriceLevelBasedOnOrderID(orderID string) error {
+	for i, order := range pl.Orders {
+		if order.ID == orderID {
+			pl.Orders = append(pl.Orders[:i], pl.Orders[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("order not found in price level")
 }
 
 type Side struct {
@@ -145,7 +158,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
 				rawTradeEvent := kafka.NewTradeStatusEvent(
-					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+					bestOrder.UserID, incomingOrder.UserID, bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
 				)
 
 				if !fillQty.IsZero() {
@@ -229,7 +242,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
 				rawTradeEvent := kafka.NewTradeStatusEvent(
-					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+					bestOrder.UserID, incomingOrder.UserID, bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
 				)
 
 				if !fillQty.IsZero() {
@@ -357,6 +370,8 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
 
 				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.UserID,
+					incomingOrder.UserID,
 					restingOrder.ID,
 					incomingOrder.ID,
 					incomingOrder.Pair,
@@ -468,6 +483,8 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
 
 				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.UserID,
+					incomingOrder.UserID,
 					restingOrder.ID,
 					incomingOrder.ID,
 					incomingOrder.Pair,
@@ -528,18 +545,40 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 	return nil, nil // return trade chan if there was any match.
 }
 
-// removeEmptyLevels filters out price levels that have no remaining orders.
-func removeEmptyLevels(levels []*PriceLevel) []*PriceLevel {
-	result := levels[:0]
-	for _, lvl := range levels {
-		if len(lvl.Orders) > 0 {
-			result = append(result, lvl)
+func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.OrderRepository, incomingOrder Order) (<-chan Trade, error) {
+	zap.S().Infow("cancel order trigerred and consumed", "order", incomingOrder)
+	var captured bool
+	if incomingOrder.Side == SideBuy {
+		for _, pl := range ob.Bids.Levels {
+			if pl.PriceLevel.Equal(incomingOrder.Price) {
+				if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
+					zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
+					return nil, err
+				}
+				captured = true
+				break
+			}
 		}
+		ob.Bids.Levels = removeEmptyLevels(ob.Bids.Levels)
+	} else {
+		for _, pl := range ob.Asks.Levels {
+			if pl.PriceLevel.Equal(incomingOrder.Price) {
+				if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
+					zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
+					return nil, err
+				}
+				captured = true
+				break
+			}
+		}
+		ob.Asks.Levels = removeEmptyLevels(ob.Asks.Levels)
 	}
-	return result
-}
-
-// TODO : implement it
-func (ob *Orderbook) Cancel(incomingOrder Order) (<-chan Trade, error) {
+	// if it was not found in the book, we have a CRUCIAL bug: deleting a record that doesn't exist or was already removed.
+	if !captured {
+		return nil, errors.New("order not found in orderbook")
+	}
+	if err := orderRepository.UpdateOrderStatus(ctx, incomingOrder.ID, entities.StatusCancelled, incomingOrder.Filled); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }

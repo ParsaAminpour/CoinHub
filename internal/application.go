@@ -1,6 +1,8 @@
 package internal
 
 import (
+	coinhub_ws "coinhub/internal/adapter/handler/websockets"
+	"coinhub/internal/adapter/handler/websockets/notification"
 	"coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/adapter/repository/cache"
 	repository "coinhub/internal/adapter/repository/postgres"
@@ -51,6 +53,7 @@ type ApplicationOptions struct {
 	SkipMatchEngine   bool
 	SkipMessageBroker bool
 	SkipMarket        bool
+	SkipWebsocket     bool
 }
 
 // TODO : Add connections graceful shutdown
@@ -81,6 +84,8 @@ type Application struct {
 	AsynqClient    *asynq.Client
 	AsynqInspector *asynq.Inspector
 	AsynqServer    *asynq.Server
+
+	WebsocketNotificationServer *notification.NotificationServer
 
 	// Message Broker configuration
 	EngineEventProducer *kafka.EngineEventProducer
@@ -162,6 +167,12 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 		}
 	}
 
+	if !o.SkipWebsocket {
+		if err := app.registerWebsocket(); err != nil {
+			zap.S().Fatalf("❌ error in registering websocket: %s", err.Error())
+		}
+	}
+
 	if !o.SkipAsynq {
 		if err := app.registerAsynqClient(); err != nil {
 			zap.S().Fatalf("❌ error in registering asynq client: %s", err.Error())
@@ -193,6 +204,11 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 		}
 	}
 	return app
+}
+
+func (app *Application) registerWebsocket() error {
+	app.WebsocketNotificationServer = notification.NewNotificationServer(coinhub_ws.New())
+	return nil
 }
 
 func (app *Application) registerMarket() error {

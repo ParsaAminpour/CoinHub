@@ -63,6 +63,8 @@ type TradeEvent interface {
 // Taker — the incoming order that matches against the resting one. It takes liquidity from the book.
 type TradeStatusEvent struct {
 	EventHeader
+	MakerUserID    string          `json:"maker_user_id"`
+	TakerUserID    string          `json:"taker_user_id"`
 	MakerOrderID   string          `json:"maker_order_id"`
 	TakerOrderID   string          `json:"taker_order_id"`
 	Pair           string          `json:"pair"`
@@ -75,6 +77,7 @@ type TradeStatusEvent struct {
 }
 
 func NewTradeStatusEvent(
+	makerUserID, takerUserID string,
 	makerOrderID string,
 	takerOrderID string,
 	pair string,
@@ -85,11 +88,13 @@ func NewTradeStatusEvent(
 	makerRemaining decimal.Decimal,
 	takerRemaining decimal.Decimal,
 ) TradeStatusEvent {
-	if err := validateNewTradeEventInputs(makerOrderID, takerOrderID, pair, price, quantity); err != nil {
+	if err := validateNewTradeEventInputs(makerUserID, takerUserID, makerOrderID, takerOrderID, pair, price, quantity); err != nil {
 		zap.S().Errorw("invalid NewTradeEvent input", "error", err)
 		return TradeStatusEvent{}
 	}
 	return TradeStatusEvent{
+		MakerUserID:    makerUserID,
+		TakerUserID:    takerUserID,
 		EventHeader:    EventHeader{EventID: uuid.NewString(), EventType: EventTradeExecuted, Version: "v1", OccuredAt: time.Now()},
 		MakerOrderID:   makerOrderID,
 		TakerOrderID:   takerOrderID,
@@ -103,7 +108,13 @@ func NewTradeStatusEvent(
 	}
 }
 
-func validateNewTradeEventInputs(makerOrderID string, takerOrderID string, pair string, price decimal.Decimal, quantity decimal.Decimal) error {
+func validateNewTradeEventInputs(makerUserID, takerUserID, makerOrderID, takerOrderID, pair string, price decimal.Decimal, quantity decimal.Decimal) error {
+	if makerUserID == "" {
+		return fmt.Errorf("maker user id is required")
+	}
+	if takerUserID == "" {
+		return fmt.Errorf("taker user id is required")
+	}
 	if makerOrderID == "" {
 		return fmt.Errorf("maker order id is required")
 	}
