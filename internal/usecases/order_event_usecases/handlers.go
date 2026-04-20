@@ -163,7 +163,23 @@ func (h *NotificationHandler) HandleNotificationForOrders(ctx context.Context, e
 }
 
 // called in the notification event consumer handlers
-func (h *NotificationHandler) HandleNotificationForTrades(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
+func (h *NotificationHandler) HandleNotificationForTrades(ctx context.Context, event kafka.TradeStatusEvent, record *kgo.Record, hub *notification.NotificationServer) error {
+	if event.EventID == "" {
+		return errors.New("missing event_id")
+	}
+	inserted, err := h.Deduper.MarkEventProcessed(ctx, h.ConsumerName, event.EventID)
+	if err != nil || !inserted {
+		return err
+	}
+
+	// if you found any event, the hub::client::send()
+	eventPayload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	websocketMsg := coinhub_ws.NewMessage(coinhub_ws.TypeEvent, string(event.EventType), eventPayload)
+	hub.Hub.BroadcastUser(ctx, event.MakerUserID, websocketMsg)
+	hub.Hub.BroadcastUser(ctx, event.TakerUserID, websocketMsg)
 	return nil
 }
 

@@ -158,7 +158,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
 				rawTradeEvent := kafka.NewTradeStatusEvent(
-					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+					bestOrder.UserID, incomingOrder.UserID, bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
 				)
 
 				if !fillQty.IsZero() {
@@ -242,7 +242,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					kafka.OrderSide(bestOrder.Side), bestOrder.Price, bestOrder.Quantity, bestOrder.Filled, bestOrder.Remaining(),
 				)
 				rawTradeEvent := kafka.NewTradeStatusEvent(
-					bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
+					bestOrder.UserID, incomingOrder.UserID, bestOrder.ID, incomingOrder.ID, incomingOrder.Pair, incomingOrder.Price, fillQty, false, false, bestOrder.Remaining(), incomingOrder.Remaining(),
 				)
 
 				if !fillQty.IsZero() {
@@ -370,6 +370,8 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
 
 				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.UserID,
+					incomingOrder.UserID,
 					restingOrder.ID,
 					incomingOrder.ID,
 					incomingOrder.Pair,
@@ -481,6 +483,8 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				takerRemainingAfter := takerRemainingBefore.Sub(fillQty)
 
 				tradeEvents = append(tradeEvents, kafka.NewTradeStatusEvent(
+					restingOrder.UserID,
+					incomingOrder.UserID,
 					restingOrder.ID,
 					incomingOrder.ID,
 					incomingOrder.Pair,
