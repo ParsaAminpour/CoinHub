@@ -1,25 +1,16 @@
 global:
-  scrape_interval: 15s      # How often Prometheus scrapes targets
-  evaluation_interval: 15s  # How often rules are evaluated
+  scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
-  # CoinHub API — the Go app exposes /metrics on port 8083
+  # When running fully in Docker (docker compose up), use the service name.
+  # When running the app locally (air/go run) with only monitoring in Docker,
+  # change the target to "host.docker.internal:8083".
   - job_name: "coinhub_api"
     static_configs:
-      - targets: ["host.docker.internal:8083"]
+      - targets: ["coinhub_api:8083"]
     metrics_path: /metrics
 
-  # Prometheus self-monitoring
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
-
-  # Redis exporter (optional — add if you deploy redis_exporter)
-  # - job_name: "redis"
-  #   static_configs:
-  #     - targets: ["redis_exporter:9121"]
-
-  # Kafka exporter (optional — add if you deploy kafka_exporter)
-  # - job_name: "kafka"
-  #   static_configs:
-  #     - targets: ["kafka_exporter:9308"]

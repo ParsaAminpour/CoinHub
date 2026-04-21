@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+tmp
+.air.toml
+air.toml
+*.md
+docs
+tests
+scripts
+monitoring
