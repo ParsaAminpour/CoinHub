@@ -1,6 +1,7 @@
 package coinhub_ws
 
 import (
+	"coinhub/internal/infrastructure/metrics"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -63,6 +64,7 @@ func (h *Hub) Register(c *Client) {
 	}
 	h.presence[c.UserID][c.ID] = true
 
+	metrics.WebSocketConnectionsActive.Inc()
 	slog.Info("client registered", "connID", c.ID, "userID", c.UserID,
 		"totalConns", len(h.clients))
 }
@@ -93,6 +95,7 @@ func (h *Hub) Unregister(connID string) {
 	}
 
 	delete(h.clients, connID)
+	metrics.WebSocketConnectionsActive.Dec()
 	slog.Info("client unregistered", "connID", connID, "userID", c.UserID)
 }
 

@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"coinhub/internal/infrastructure/metrics"
 	"encoding/json"
 	"fmt"
 
@@ -29,6 +30,7 @@ func (oep *EngineEventProducer) publishOrderEvent(event OrderEvent) error {
 	if err := oep.producer.ProduceSync(oep.ctx, record).FirstErr(); err != nil {
 		return err
 	}
+	metrics.KafkaEventsPublishedTotal.WithLabelValues(topic).Inc()
 	zap.S().Infow("Order event published",
 		"event_type", event.GetEventHeader().EventType,
 		"event_id", event.GetEventHeader().EventID,

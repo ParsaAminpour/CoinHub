@@ -6,6 +6,7 @@ import (
 	adapterkafka "coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/infrastructure/configs"
+	"coinhub/internal/infrastructure/metrics"
 	"coinhub/internal/usecases/order_event_usecases"
 
 	kafkaconsumer "coinhub/internal/infrastructure/kafka/consumer"
@@ -170,6 +171,7 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.EngineEventProducer, inc
 		zap.S().Errorw("Failed to publish order event", "error", err, "orderID", incomingOrder.ID)
 		return fmt.Errorf("failed to publish order event: %w", err)
 	}
+	metrics.OrdersSubmittedTotal.WithLabelValues(incomingOrder.Pair, string(incomingOrder.Type), string(incomingOrder.Side)).Inc()
 	return nil
 }
 
@@ -291,6 +293,7 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 			}
 			zap.S().Info("Consuming order status event calls Handle for pair:", event.(adapterkafka.OrderStatusEvent).Pair)
 
+			metrics.KafkaEventsConsumedTotal.WithLabelValues(record.Topic).Inc()
 			switch event.(type) {
 			case adapterkafka.OrderStatusEvent:
 				if err := handler.HandleIncmingOrder(handlerCtx, event.(adapterkafka.OrderStatusEvent), record); err != nil {

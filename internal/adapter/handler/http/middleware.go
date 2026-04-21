@@ -2,6 +2,7 @@ package http
 
 import (
 	"coinhub/internal/adapter/repository/cache"
+	"coinhub/internal/infrastructure/metrics"
 	"net/http"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ func rateLimiter(store *cache.RateLimiterCache, maxRequests int) gin.HandlerFunc
 		}
 
 		if !allowed {
+			metrics.RateLimitedRequestsTotal.WithLabelValues(ip).Inc()
 			c.Header("Retry-After", time.Now().Add(time.Minute).UTC().Format(http.TimeFormat))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "too many requests",

@@ -13,6 +13,7 @@ import (
 	"coinhub/internal/infrastructure/configs"
 	"coinhub/internal/infrastructure/database"
 	"coinhub/internal/infrastructure/market"
+	"coinhub/internal/infrastructure/metrics"
 	"context"
 	"flag"
 	"fmt"
@@ -121,6 +122,8 @@ func NewApplication(ctx context.Context, configs *configs.Configuration, opts ..
 	}
 
 	app := &Application{Configs: configs}
+
+	metrics.Init()
 
 	skipWalletSvc := o.SkipWalletService || o.SkipHDWallet || o.SkipETHClient
 	if o.SkipCache && !o.SkipRedis {
