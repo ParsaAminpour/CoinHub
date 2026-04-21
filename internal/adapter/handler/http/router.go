@@ -10,7 +10,9 @@ import (
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/infrastructure/security"
 	"net/http"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
@@ -86,12 +88,25 @@ func SetupRouter(app *internal.Application) error {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
 
-	// TODO : setup middlewares here
 	router := gin.Default()
-	router.Use(gin.Recovery())                        // for handling panics
-	router.Use(gin.Logger())                          // write the logs to gin.DefaultWriter
-	router.Use(security.SecurityHeadersMiddleware())  // security response headers
-	router.SetTrustedProxies([]string{"192.168.1.2"})
+	// TODO : add Sentry for crash reporting - in production
+	router.Use(gin.Recovery())                                           // for handling panics
+	router.Use(gin.Logger())                                             // write the logs to gin.DefaultWriter
+	router.Use(security.SecurityHeadersMiddleware())                     // security response headers
+	router.Use(forwarded())                                              // extract real IP from X-Forwarded-For
+	router.Use(rateLimiter(app.RateLimiterCache, 60))                   // 60 req/min per IP
+	router.SetTrustedProxies([]string{"192.168.1.2"}) // TODO : add the load balancer address here
+
+	if app.Configs.App.Env != "DEVELOPMENT" {
+		router.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{app.Configs.AllowedOrigins.FrontendApplication},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: true,
+			MaxAge:           12 * time.Hour,
+		}))
+	}
 
 	if err := registerValidators(); err != nil {
 		zap.S().Error("error in registering validators\n%s", err.Error())

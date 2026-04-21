@@ -16,6 +16,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-redis/redis/v8"
@@ -96,6 +97,7 @@ type Application struct {
 
 	AuthGmailCache           *cache.AuthGmailCache
 	PendingTransactionsCache *cache.PendingTransactionsCache
+	RateLimiterCache         *cache.RateLimiterCache
 
 	// Matching Engine setup, Match Engine should be in a separated service indeed.
 	OrderMatchEngine *engine.MatchEngine
@@ -260,7 +262,8 @@ func (app *Application) registerCache(ctx context.Context) error {
 	}
 	app.AuthGmailCache = cache.NewAuthGmailCache(ctx, app.RedisClient, tasks.EMAIL_VERIFICATION_CODE_LIFETIME_DURATION)
 	app.PendingTransactionsCache = cache.NewPendingTransactionsCache(ctx, app.RedisClient, cache.PENDING_TRANSACTION_LIFETIME_DURATION)
-	zap.S().Info("AuthGmailCache initialized and registered with Redis ✅")
+	app.RateLimiterCache = cache.NewRateLimiterCache(ctx, app.RedisClient, time.Minute)
+	zap.S().Info("Cache stores initialized and registered with Redis ✅")
 	return nil
 }
 
