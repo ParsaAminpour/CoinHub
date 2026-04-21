@@ -79,12 +79,17 @@ func RunNotificationConsumer(configs *configs.Configuration) *cobra.Command {
 					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
 						return err
 					}
-					if err := handler.HandleNotificationForOrders(handlerCtx, event.(kafka.OrderStatusEvent), record, app.WebsocketNotificationServer); err != nil {
-						return err
+					switch event.(type) {
+					case kafka.OrderStatusEvent:
+						if err := handler.HandleNotificationForOrders(handlerCtx, event.(kafka.OrderStatusEvent), record, app.WebsocketNotificationServer); err != nil {
+							return err
+						}
+					case kafka.TradeStatusEvent:
+						if err := handler.HandleNotificationForTrades(handlerCtx, event.(kafka.TradeStatusEvent), record, app.WebsocketNotificationServer); err != nil {
+							return err
+						}
 					}
-					if err := handler.HandleNotificationForTrades(handlerCtx, event.(kafka.TradeStatusEvent), record, app.WebsocketNotificationServer); err != nil {
-						return err
-					}
+
 					return nil
 				},
 				groupID,

@@ -8,9 +8,12 @@ import (
 	"coinhub/internal/adapter/handler/websockets/notification"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
+	"coinhub/internal/infrastructure/metrics"
 	"coinhub/internal/infrastructure/security"
 	"net/http"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
@@ -20,6 +23,8 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 	"nhooyr.io/websocket"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type apiGetHandlerSignature func(c *gin.Context, app *internal.Application) error
@@ -86,14 +91,34 @@ func SetupRouter(app *internal.Application) error {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
 
-	// TODO : setup middlewares here
 	router := gin.Default()
-	router.SetTrustedProxies([]string{"192.168.1.2"})
+	// TODO : add Sentry for crash reporting - in production
+	router.Use(gin.Recovery())           // for handling panics
+	router.Use(gin.Logger())             // write the logs to gin.DefaultWriter
+	router.Use(metrics.HTTPMiddleware()) // prometheus HTTP metrics
+
+	if app.Configs.App.Env != "DEVELOPMENT" {
+		router.Use(security.SecurityHeadersMiddleware())  // security response headers
+		router.Use(forwarded())                           // extract real IP from X-Forwarded-For
+		router.Use(rateLimiter(app.RateLimiterCache, 60)) // 60 req/min per IP
+		router.SetTrustedProxies([]string{"192.168.1.2"}) // TODO : add the load balancer address here
+		router.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{app.Configs.AllowedOrigins.FrontendApplication},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowCredentials: true,
+			MaxAge:           12 * time.Hour,
+		}))
+	}
 
 	if err := registerValidators(); err != nil {
 		zap.S().Error("error in registering validators\n%s", err.Error())
 		return err
 	}
+
+	// Prometheus metrics — scraped by Prometheus server, not for public clients.
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// docs.SwaggerInfo.BasePath = "/api/v1"
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))

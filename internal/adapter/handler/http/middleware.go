@@ -1,10 +1,14 @@
 package http
 
 import (
+	"coinhub/internal/adapter/repository/cache"
+	"coinhub/internal/infrastructure/metrics"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func forwarded() gin.HandlerFunc {
@@ -20,40 +24,30 @@ func forwarded() gin.HandlerFunc {
 	}
 }
 
-func rateLimiter(maxRequests int, expiration time.Duration) gin.HandlerFunc {
-	// Memory store: map[ip] -> {count, lastSeen}
-	type clientInfo struct {
-		count    int
-		lastSeen time.Time
-	}
-	clients := make(map[string]*clientInfo)
-
+func rateLimiter(store *cache.RateLimiterCache, maxRequests int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.GetString("real-ip")
 		if ip == "" {
 			ip = c.ClientIP()
 		}
 
-		now := time.Now()
-		if info, ok := clients[ip]; ok {
-			// Expire old
-			if now.Sub(info.lastSeen) > expiration {
-				info.count = 0
-			}
-			info.lastSeen = now
-			info.count++
-			if info.count > maxRequests {
-				c.AbortWithStatusJSON(429, gin.H{
-					"error": "too many requests",
-				})
-				return
-			}
-		} else {
-			clients[ip] = &clientInfo{
-				count:    1,
-				lastSeen: now,
-			}
+		allowed, err := store.Allow(c.Request.Context(), ip, maxRequests)
+		if err != nil {
+			// Redis failure: log and let the request through to avoid blocking legitimate traffic.
+			zap.S().Warnw("rate limiter redis error, allowing request", "ip", ip, "error", err)
+			c.Next()
+			return
 		}
+
+		if !allowed {
+			metrics.RateLimitedRequestsTotal.WithLabelValues(ip).Inc()
+			c.Header("Retry-After", time.Now().Add(time.Minute).UTC().Format(http.TimeFormat))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "too many requests",
+			})
+			return
+		}
+
 		c.Next()
 	}
 }

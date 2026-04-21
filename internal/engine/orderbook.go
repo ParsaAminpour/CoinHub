@@ -4,6 +4,7 @@ import (
 	"coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/domain/repositories"
+	"coinhub/internal/infrastructure/metrics"
 	"context"
 	"errors"
 	"sync"
@@ -197,8 +198,9 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 					if rawTradeEvent.MakerFilled || rawTradeEvent.TakerFilled {
 						if err := eventProducer.PublishTradeStatusEvent(rawTradeEvent); err != nil {
 							zap.S().Errorw("failed to publish trade event", "error", err, "maker_order_id", bestOrder.ID, "taker_order_id", incomingOrder.ID, "pair", incomingOrder.Pair)
-
 						}
+						metrics.TradesExecutedTotal.WithLabelValues(incomingOrder.Pair).Inc()
+						metrics.OrdersMatchedTotal.WithLabelValues(incomingOrder.Pair).Inc()
 					}
 					if incomingFullyFilled {
 						break
@@ -279,6 +281,8 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 						if err := eventProducer.PublishTradeStatusEvent(rawTradeEvent); err != nil {
 							zap.S().Errorw("failed to publish trade status event", "error", err, "maker_order_id", bestOrder.ID, "taker_order_id", incomingOrder.ID, "pair", incomingOrder.Pair)
 						}
+						metrics.TradesExecutedTotal.WithLabelValues(incomingOrder.Pair).Inc()
+						metrics.OrdersMatchedTotal.WithLabelValues(incomingOrder.Pair).Inc()
 					}
 
 					bestOrder.Filled = bestOrder.Filled.Add(fillQty)
@@ -425,6 +429,10 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				if err := eventProducer.PublishTradeStatusEventBatch(tradeEvents); err != nil {
 					zap.S().Errorw("Failed to publish trade event batch", "error", err)
 				}
+				metrics.TradesExecutedTotal.WithLabelValues(incomingOrder.Pair).Add(float64(len(tradeEvents)))
+			}
+			if incomingFullyFilled {
+				metrics.OrdersMatchedTotal.WithLabelValues(incomingOrder.Pair).Inc()
 			}
 		}
 
@@ -536,6 +544,10 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				if err := eventProducer.PublishTradeStatusEventBatch(tradeEvents); err != nil {
 					zap.S().Errorw("Failed to publish trade event batch", "error", err)
 				}
+				metrics.TradesExecutedTotal.WithLabelValues(incomingOrder.Pair).Add(float64(len(tradeEvents)))
+			}
+			if incomingFullyFilled {
+				metrics.OrdersMatchedTotal.WithLabelValues(incomingOrder.Pair).Inc()
 			}
 		}
 
@@ -580,5 +592,6 @@ func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.Or
 	if err := orderRepository.UpdateOrderStatus(ctx, incomingOrder.ID, entities.StatusCancelled, incomingOrder.Filled); err != nil {
 		return nil, err
 	}
+	metrics.OrdersCancelledTotal.WithLabelValues(incomingOrder.Pair).Inc()
 	return nil, nil
 }

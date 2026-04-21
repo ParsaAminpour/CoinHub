@@ -13,15 +13,15 @@ func NewResponseHelper() *ResponseHelper {
 }
 
 func (rh *ResponseHelper) Success(c *gin.Context, data interface{}, message ...string) {
-	c.JSON(http.StatusOK, NewSuccessResponse(data, message...))
+	c.SecureJSON(http.StatusOK, NewSuccessResponse(data, message...))
 }
 
 func (rh *ResponseHelper) SuccessWithMeta(c *gin.Context, data interface{}, meta interface{}, message ...string) {
-	c.JSON(http.StatusOK, NewSuccessResponseWithMeta(data, meta, message...))
+	c.SecureJSON(http.StatusOK, NewSuccessResponseWithMeta(data, meta, message...))
 }
 
 func (rh *ResponseHelper) ValidationError(c *gin.Context, errors interface{}) {
-	c.JSON(http.StatusUnprocessableEntity, NewValidationErrorResponse(errors))
+	c.SecureJSON(http.StatusUnprocessableEntity, NewValidationErrorResponse(errors))
 }
 
 func (rh *ResponseHelper) BadRequest(c *gin.Context, message string, errors ...interface{}) {
@@ -29,7 +29,7 @@ func (rh *ResponseHelper) BadRequest(c *gin.Context, message string, errors ...i
 	if len(errors) > 0 {
 		err = errors[0]
 	}
-	c.JSON(http.StatusBadRequest, NewErrorResponse(message, err))
+	c.SecureJSON(http.StatusBadRequest, NewErrorResponse(message, err))
 }
 
 func (rh *ResponseHelper) Unauthorized(c *gin.Context, message string, errors ...interface{}) {
@@ -37,7 +37,7 @@ func (rh *ResponseHelper) Unauthorized(c *gin.Context, message string, errors ..
 	if len(errors) > 0 {
 		err = errors[0]
 	}
-	c.JSON(http.StatusUnauthorized, NewErrorResponse(message, err))
+	c.SecureJSON(http.StatusUnauthorized, NewErrorResponse(message, err))
 }
 
 func (rh *ResponseHelper) Forbidden(c *gin.Context, message string, errors ...interface{}) {
@@ -45,7 +45,7 @@ func (rh *ResponseHelper) Forbidden(c *gin.Context, message string, errors ...in
 	if len(errors) > 0 {
 		err = errors[0]
 	}
-	c.JSON(http.StatusForbidden, NewErrorResponse(message, err))
+	c.SecureJSON(http.StatusForbidden, NewErrorResponse(message, err))
 }
 
 func (rh *ResponseHelper) NotFound(c *gin.Context, message string, errors ...interface{}) {
@@ -53,7 +53,7 @@ func (rh *ResponseHelper) NotFound(c *gin.Context, message string, errors ...int
 	if len(errors) > 0 {
 		err = errors[0]
 	}
-	c.JSON(http.StatusNotFound, NewErrorResponse(message, err))
+	c.SecureJSON(http.StatusNotFound, NewErrorResponse(message, err))
 }
 
 func (rh *ResponseHelper) Conflict(c *gin.Context, message string, errors ...interface{}) {
@@ -61,11 +61,11 @@ func (rh *ResponseHelper) Conflict(c *gin.Context, message string, errors ...int
 	if len(errors) > 0 {
 		err = errors[0]
 	}
-	c.JSON(http.StatusConflict, NewErrorResponse(message, err))
+	c.SecureJSON(http.StatusConflict, NewErrorResponse(message, err))
 }
 
 func (rh *ResponseHelper) UnprocessableEntity(c *gin.Context, message string, errors interface{}) {
-	c.JSON(http.StatusUnprocessableEntity, NewErrorResponse(message, errors))
+	c.SecureJSON(http.StatusUnprocessableEntity, NewErrorResponse(message, errors))
 }
 
 func (rh *ResponseHelper) InternalServerError(c *gin.Context, message ...string) {
@@ -73,39 +73,39 @@ func (rh *ResponseHelper) InternalServerError(c *gin.Context, message ...string)
 	if len(message) > 0 && message[0] != "" {
 		msg = message[0]
 	}
-	c.JSON(http.StatusInternalServerError, NewErrorResponse(msg, nil))
+	c.SecureJSON(http.StatusInternalServerError, NewErrorResponse(msg, nil))
 }
 
 func (rh *ResponseHelper) ServiceUnavailable(c *gin.Context, message string) {
-	c.JSON(http.StatusServiceUnavailable, NewErrorResponse(message, nil))
+	c.SecureJSON(http.StatusServiceUnavailable, NewErrorResponse(message, nil))
 }
 
 func (rh *ResponseHelper) InvalidRequestBody(c *gin.Context) {
-	c.JSON(http.StatusBadRequest, NewErrorResponse(MsgInvalidRequestBody, nil))
+	c.SecureJSON(http.StatusBadRequest, NewErrorResponse(MsgInvalidRequestBody, nil))
 }
 
 func (rh *ResponseHelper) TokenGenerationFailed(c *gin.Context) {
-	c.JSON(http.StatusInternalServerError, NewErrorResponse(MsgTokenGenerationFailed, nil))
+	c.SecureJSON(http.StatusInternalServerError, NewErrorResponse(MsgTokenGenerationFailed, nil))
 }
 
 func (rh *ResponseHelper) InvalidToken(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, NewErrorResponse(MsgInvalidToken, nil))
+	c.SecureJSON(http.StatusUnauthorized, NewErrorResponse(MsgInvalidToken, nil))
 }
 
 func (rh *ResponseHelper) InvalidCredentials(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, NewErrorResponse(MsgInvalidCredentials, nil))
+	c.SecureJSON(http.StatusUnauthorized, NewErrorResponse(MsgInvalidCredentials, nil))
 }
 
 func (rh *ResponseHelper) TokenExpired(c *gin.Context) {
-	c.JSON(http.StatusUnauthorized, NewErrorResponse(MsgTokenExpired, nil))
+	c.SecureJSON(http.StatusUnauthorized, NewErrorResponse(MsgTokenExpired, nil))
 }
 
 func (rh *ResponseHelper) SuccessStandard(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusOK, data)
+	c.SecureJSON(http.StatusOK, data)
 }
 
 func (rh *ResponseHelper) ErrorStandard(c *gin.Context, statusCode int, message string) {
-	c.JSON(statusCode, gin.H{
+	c.SecureJSON(statusCode, gin.H{
 		"code":    statusCode,
 		"message": message,
 	})

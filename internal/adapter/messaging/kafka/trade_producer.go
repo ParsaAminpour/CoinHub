@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"coinhub/internal/infrastructure/metrics"
 	"encoding/json"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -28,6 +29,7 @@ func (tep *EngineEventProducer) publishTradeStatusEvent(event TradeStatusEvent) 
 	if err := tep.producer.ProduceSync(tep.ctx, record).FirstErr(); err != nil {
 		return err
 	}
+	metrics.KafkaEventsPublishedTotal.WithLabelValues(topic).Inc()
 	return nil
 }
 

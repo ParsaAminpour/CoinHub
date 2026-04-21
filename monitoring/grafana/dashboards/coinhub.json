@@ -1,0 +1,194 @@
+{
+  "title": "CoinHub Overview",
+  "uid": "coinhub-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_http_requests_total[1m])) by (method, path)",
+          "legendFormat": "{{method}} {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP Error Rate (4xx / 5xx)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_http_requests_total{status=~\"4..|5..\"}[1m])) by (status, path)",
+          "legendFormat": "{{status}} {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "HTTP P99 Latency (seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(coinhub_http_request_duration_seconds_bucket[1m])) by (le, path))",
+          "legendFormat": "p99 {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "HTTP P50 Latency (seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(coinhub_http_request_duration_seconds_bucket[1m])) by (le, path))",
+          "legendFormat": "p50 {{path}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Orders Submitted (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_orders_submitted_total[1m])) by (pair, type, side)",
+          "legendFormat": "{{pair}} {{type}} {{side}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Orders Matched (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 16, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_orders_matched_total[1m])) by (pair)",
+          "legendFormat": "{{pair}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Orders Cancelled (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_orders_cancelled_total[1m])) by (pair)",
+          "legendFormat": "{{pair}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Trades Executed (rate/s)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_trades_executed_total[1m]))",
+          "legendFormat": "trades/s"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Active WebSocket Connections",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "coinhub_websocket_connections_active",
+          "legendFormat": "connections"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Rate-Limited Requests (rate/s)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_rate_limited_requests_total[1m]))",
+          "legendFormat": "blocked/s"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Kafka Events Published (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_kafka_events_published_total[1m])) by (topic)",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Kafka Events Consumed (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(coinhub_kafka_events_consumed_total[1m])) by (topic)",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "Go Goroutines",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 36, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "go_goroutines",
+          "legendFormat": "goroutines"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Go Heap Memory (bytes)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 36, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "go_memstats_heap_alloc_bytes",
+          "legendFormat": "heap alloc"
+        },
+        {
+          "expr": "go_memstats_heap_sys_bytes",
+          "legendFormat": "heap sys"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "GC Pause Duration (p99, seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 36, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(go_gc_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99 GC pause"
+        }
+      ]
+    }
+  ]
+}
