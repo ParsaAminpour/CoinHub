@@ -88,6 +88,9 @@ func SetupRouter(app *internal.Application) error {
 
 	// TODO : setup middlewares here
 	router := gin.Default()
+	router.Use(gin.Recovery())                        // for handling panics
+	router.Use(gin.Logger())                          // write the logs to gin.DefaultWriter
+	router.Use(security.SecurityHeadersMiddleware())  // security response headers
 	router.SetTrustedProxies([]string{"192.168.1.2"})
 
 	if err := registerValidators(); err != nil {
