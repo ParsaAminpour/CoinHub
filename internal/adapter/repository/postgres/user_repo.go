@@ -49,7 +49,7 @@ func (r *UserRepository) UpdateGmailVerificationStatus(ctx context.Context, gmai
 }
 
 func (r *UserRepository) GetUserByID(ctx context.Context, user *entities.User, userID uuid.UUID) error {
-	if err := r.db.WithContext(ctx).Where("id = ?", userID).Preload("WalletAccount").First(&user).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("id = ?", userID).Preload("WalletAccount").Preload("Role").First(&user).Error; err != nil {
 		return err
 	}
 	return nil

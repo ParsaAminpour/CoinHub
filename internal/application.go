@@ -63,6 +63,7 @@ type Application struct {
 	Configs *configs.Configuration
 
 	UserRepository          repositories.UserRepository
+	RoleRepository          repositories.RoleRepository
 	WalletAccountRepository repositories.WalletAccountRepository
 	TransactinRepository    repositories.EVMTransactionRepository
 	TransferRepository      repositories.TransferEventRepository
@@ -287,6 +288,7 @@ func (app *Application) registerAsynqClient() error {
 
 func (app *Application) registerRepositories() error {
 	app.UserRepository = repository.NewUserRepository(app.MySqlGorm)
+	app.RoleRepository = repository.NewRoleRepository(app.MySqlGorm)
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)

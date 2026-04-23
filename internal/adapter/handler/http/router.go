@@ -181,6 +181,8 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	orderGroup := r.Group("/order")
 	orderGroup.Use(security.AuthMiddleware())
+	orderGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
+
 	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, app))
 	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, app))
 	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, app))
@@ -194,6 +196,7 @@ func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
 
 func registerOrderWebsocketRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	eventsGroup := r.Group("/events")
+	eventsGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
 	eventsGroup.GET("/ws", apiWebsocketHandler(app.WebsocketNotificationServer.OrderEventEmitterWebsocketListener, app.UserRepository))
 	return nil
 }
@@ -201,6 +204,7 @@ func registerOrderWebsocketRoutes(r *gin.RouterGroup, app *internal.Application)
 func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	userGroup := r.Group("/user")
 	userGroup.Use(security.AuthMiddleware())
+	userGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
 	return nil
 }
 
@@ -229,16 +233,17 @@ func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 
 func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup := r.Group("transaction")
+	authGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
 	authGroup.Use(security.AuthMiddleware())
 	authGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, app))
 	return nil
 }
 
-// NOTE : Contains system and sensitive operation which means it should be highly protected and the access control applied.
-// TODO : implement the routing strategy of this section after the access control added.
+// NOTE : Contains system and sensitive operations — requires admin or system role.
 func registerSystemRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	systemGroup := r.Group("system")
 	systemGroup.Use(security.AuthMiddleware())
+	systemGroup.Use(RequireRole(app.UserRepository, entities.RoleAdmin, entities.RoleSystem))
 
 	operationGroup := systemGroup.Group("operation")
 	assetOperationsGroup := operationGroup.Group("asset")

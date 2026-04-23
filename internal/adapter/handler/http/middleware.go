@@ -2,14 +2,52 @@ package http
 
 import (
 	"coinhub/internal/adapter/repository/cache"
+	"coinhub/internal/domain/entities"
+	"coinhub/internal/domain/repositories"
 	"coinhub/internal/infrastructure/metrics"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+// RequireRole allows only users whose role matches one of the given roles.
+// Must be chained after AuthMiddleware (depends on "userID" being set in context).
+func RequireRole(userRepo repositories.UserRepository, roles ...entities.RoleName) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rawID, exists := c.Get("userID")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing user identity"})
+			return
+		}
+
+		userID, err := uuid.Parse(rawID.(string))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid user identity"})
+			return
+		}
+
+		var user entities.User
+		if err := userRepo.GetUserByID(c, &user, userID); err != nil {
+			zap.S().Warnw("RequireRole: user lookup failed", "userID", userID, "error", err)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			return
+		}
+
+		for _, allowed := range roles {
+			if user.Role.Name == allowed {
+				c.Next()
+				return
+			}
+		}
+
+		zap.S().Warnw("RequireRole: access denied", "userID", userID, "role", user.Role.Name, "required", roles)
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+	}
+}
 
 func forwarded() gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -51,11 +51,11 @@ type Configuration struct {
 		JWTSecret     string `env:"APP_JWT_SECRET" env-default:"thisisbestsecretintheworldsomething"`
 		SessionSecret string `env:"APP_SESSION_SECRET" env-default:"thisisbestsecretintheworldbrother"`
 
-		HDWalletMnemonic string `env:"HDWALLET_MNEMONIC" env-required:"true"`
-		ETHClientTestnet string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
-		ETHClientMainnet string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
-		NetworkStatus    string `env:"NETWORK_STATUS" env-default:"TESTNET"`
-
+		// TODO(feature): this network setup just supports two kind of network simultaneuosly, you can setup it better.
+		NetworkStatus           string `env:"NETWORK_STATUS" env-default:"TESTNET"`
+		HDWalletMnemonic        string `env:"HDWALLET_MNEMONIC" env-required:"true"`
+		ETHClientTestnet        string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
+		ETHClientMainnet        string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
 		WSClientEthereumMainnet string `env:"WS_CLIENT_ETHEREUM_MAINNET" env-required:"true"`
 		WSClientEthereumTestnet string `env:"WS_CLIENT_ETHEREUM_TESTNET" env-required:"true"`
 	}

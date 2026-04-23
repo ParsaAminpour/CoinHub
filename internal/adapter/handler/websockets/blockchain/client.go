@@ -15,7 +15,7 @@ var (
 	evmTokenLogs chan types.Log
 )
 
-func StartOnchainListener(ctx context.Context, app *internal.Application) error {
+func StartOnchainListener(ctx context.Context, fromBlock int, app *internal.Application) error {
 	availableAssets, err := app.AssetRepository.GetAvailableAssets(ctx)
 	if err != nil {
 		return err
@@ -32,7 +32,7 @@ func StartOnchainListener(ctx context.Context, app *internal.Application) error 
 		&app.WalletAccountRepository,
 		availableAssetContractAddresses,
 		app.PendingTransactionsCache,
-		10334076); err != nil {
+		fromBlock); err != nil {
 		zap.S().Errorw("failed to start EVM token balance listener", "error", err)
 		return fmt.Errorf("failed to start EVM token balance listener", "error", err)
 	}
