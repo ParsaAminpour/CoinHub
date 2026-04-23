@@ -58,6 +58,8 @@ type Configuration struct {
 		ETHClientMainnet        string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
 		WSClientEthereumMainnet string `env:"WS_CLIENT_ETHEREUM_MAINNET" env-required:"true"`
 		WSClientEthereumTestnet string `env:"WS_CLIENT_ETHEREUM_TESTNET" env-required:"true"`
+
+		IPInfoServiceToken string `env:"IPINFO_SERVICE_TOKEN" env-default:"f7469fe42c3c6c"`
 	}
 
 	MessageBroker struct {

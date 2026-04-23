@@ -66,7 +66,6 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error
 	return nil
 }
 
-// TODO : is using the price feed as the price argument in a market order a best practice for this?
 // PlaceMarketOrderHTTPHandler godoc
 // @Summary      Place market order
 // @Description  Submits a market order to the matching engine using the latest market price and publishes an order event.

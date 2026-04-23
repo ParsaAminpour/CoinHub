@@ -11,11 +11,13 @@ import (
 	"coinhub/internal/usecases/user_usecases"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ipinfo/go/v2/ipinfo"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -61,12 +63,22 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 	}
 	zap.S().Infow("RegisterUser operated successfully")
 
+	if app.Configs.App.IPInfoServiceToken == "" {
+		zap.S().Fatal("missing IPINFO_TOKEN")
+	}
+
+	client := ipinfo.NewLiteClient(nil, nil, app.Configs.App.IPInfoServiceToken)
+	details, err := client.GetIPInfo(net.ParseIP(c.ClientIP()))
+	if err != nil {
+		zap.S().Fatal(err)
+	}
+
 	if err := tasks.EnqueueEmailVerificationCodeTask(
 		c,
 		app.AsynqClient,
 		time.Now().Format(time.RFC3339),
 		c.ClientIP(),
-		"New York, USA", // TODO : implement location discovery via Client IP
+		details.Country,
 		c.Request.UserAgent(),
 		fmt.Sprintf("%d", time.Now().Year()),
 		*user.Gmail,
@@ -208,13 +220,23 @@ func ResendGmailVerificationCodeHandler(c *gin.Context, app *internal.Applicatio
 		return fmt.Errorf("verification code for this user is still alive")
 	}
 
+	if app.Configs.App.IPInfoServiceToken == "" {
+		zap.S().Fatal("missing IPINFO_TOKEN")
+	}
+
+	client := ipinfo.NewLiteClient(nil, nil, app.Configs.App.IPInfoServiceToken)
+	details, err := client.GetIPInfo(net.ParseIP(c.ClientIP()))
+	if err != nil {
+		zap.S().Fatal(err)
+	}
+
 	// You might enqueue an async mail job here, mock for now.
 	if err := tasks.EnqueueEmailVerificationCodeTask(
 		c,
 		app.AsynqClient,
 		time.Now().GoString(),
 		c.ClientIP(),
-		"New York, USA", // TODO : implement location discovery via Client IP
+		details.Country,
 		c.Request.UserAgent(),
 		fmt.Sprintf("%d", time.Now().Year()),
 		*user.Gmail,
