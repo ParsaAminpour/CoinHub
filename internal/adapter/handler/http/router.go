@@ -101,7 +101,7 @@ func SetupRouter(app *internal.Application) error {
 	gin.ForceConsoleColor()
 
 	router := gin.Default()
-	// TODO : add Sentry for crash reporting - in production
+	// TODO(security) : add Sentry for crash reporting - in production
 	router.Use(gin.Recovery())           // for handling panics
 	router.Use(gin.Logger())             // write the logs to gin.DefaultWriter
 	router.Use(metrics.HTTPMiddleware()) // prometheus HTTP metrics
@@ -157,7 +157,7 @@ func SetupRouter(app *internal.Application) error {
 }
 
 func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
-	r.GET("/ping", apiGetHandler(GetHome, app)) // TODO : remove this
+	r.GET("/health", func(c *gin.Context) { HealthCheckHandler(c, app) })
 
 	if err := registerSystemRoutes(r, app); err != nil {
 		return err
@@ -262,8 +262,12 @@ func registerValidators() error {
 		v.RegisterValidation("client_ord_id", schema.ClientOrdIDCheck)
 		v.RegisterValidation("symbol_format", schema.SymbolFormatCheck)
 		v.RegisterValidation("future_time", schema.FutureTimeCheck)
+		v.RegisterValidation("wei_amount", schema.WeiAmountCheck)
+		v.RegisterValidation("token_symbol_check", schema.TokenSymbolCheck)
+		v.RegisterValidation("calldata_hex", schema.CalldataHexCheck)
 		v.RegisterStructValidation(schema.ValidatePlaceOrderRequest, schema.PlaceOrderRequest{})
 		v.RegisterStructValidation(schema.ValidateCancelOrderRequest, schema.CancelOrderRequest{})
+		v.RegisterStructValidation(schema.ValidateWithdrawNativeRequest, schema.WithdrawNativeRequest{})
 	}
 	return nil
 }

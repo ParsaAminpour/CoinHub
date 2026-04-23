@@ -87,7 +87,6 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 		return err
 	}
 
-	// TODO : we should not give the user token here, remove this after gmail verification implemented
 	if app.Configs.App.Env == "DEVELOPMENT" {
 		jwtToken, err := security.GenerateToken(user.ID.String())
 		if err != nil {

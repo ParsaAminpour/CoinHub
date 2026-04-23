@@ -31,3 +31,7 @@ func NewEngineEventProducer(ctx context.Context, kafkaClient *kgo.Client) *Engin
 func (tep *EngineEventProducer) Close() {
 	tep.producer.Close()
 }
+
+func (tep *EngineEventProducer) Ping(ctx context.Context) error {
+	return tep.producer.Ping(ctx)
+}
