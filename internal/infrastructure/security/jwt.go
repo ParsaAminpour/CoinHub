@@ -9,18 +9,17 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// TODO - Critical : the Claims should be based on UserID
 type Claims struct {
-	Username string `json:"username"`
+	UserID string `json:"userID"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(username string) (string, error) {
+func GenerateToken(userID string) (string, error) {
 	conf := configs.C
 	jwtSecret := []byte(conf.App.JWTSecret)
 
 	claims := Claims{
-		Username: username,
+		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -57,7 +56,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		if claims, ok := token.Claims.(*Claims); ok {
-			c.Set("username", claims.Username)
+			c.Set("userID", claims.UserID)
 			c.Next()
 		} else {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})

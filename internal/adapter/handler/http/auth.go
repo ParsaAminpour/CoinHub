@@ -77,7 +77,7 @@ func RegisterUserHandler(c *gin.Context, app *internal.Application) error {
 
 	// TODO : we should not give the user token here, remove this after gmail verification implemented
 	if app.Configs.App.Env == "DEVELOPMENT" {
-		jwtToken, err := security.GenerateToken(req.Username)
+		jwtToken, err := security.GenerateToken(user.ID.String())
 		if err != nil {
 			return err
 		}
@@ -143,7 +143,7 @@ func VerifyGmailVerificationCode(c *gin.Context, app *internal.Application) erro
 		return err
 	}
 
-	jwtToken, err := security.GenerateToken(req.Username)
+	jwtToken, err := security.GenerateToken(user.ID.String())
 	if err != nil {
 		return err
 	}
@@ -266,7 +266,7 @@ func LoginUserWithUsernameHandler(c *gin.Context, app *internal.Application) err
 		return fmt.Errorf("password is wrong")
 	}
 
-	jwtToken, err := security.GenerateToken(req.Username)
+	jwtToken, err := security.GenerateToken(user.ID.String())
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func LoginUserWithGmailHandler(c *gin.Context, app *internal.Application) error 
 		return fmt.Errorf("password is wrong")
 	}
 
-	jwtToken, err := security.GenerateToken(*user.Username)
+	jwtToken, err := security.GenerateToken(user.ID.String())
 	if err != nil {
 		return err
 	}

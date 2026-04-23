@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -38,13 +39,18 @@ func WithdrawHandler(c *gin.Context, app *internal.Application) error {
 	}
 
 	var user entities.User
-	username, exist := c.Get("username")
+	userID, exist := c.Get("userID")
 	if !exist {
-		zap.S().Infow("username missing in context")
+		zap.S().Infow("userID missing in context")
 	}
-	zap.S().Infow("username retrieved from jwt", "username", username.(string))
+	zap.S().Infow("userID retrieved from jwt", "userID", userID.(string))
 
-	app.UserRepository.GetUserByUsername(c, &user, username.(string))
+	parsedUserID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		responseHelper.UnauthorizedStandard(c, "invalid user ID in token")
+		return err
+	}
+	app.UserRepository.GetUserByID(c, &user, parsedUserID)
 	retrievedUserWalletAddress := user.WalletAccount.WalletAddress
 	zap.S().Info("retrieved user wallet address", "walletAddress", user.WalletAccount.WalletAddress)
 	if req.AssetOwnerAddress != retrievedUserWalletAddress {

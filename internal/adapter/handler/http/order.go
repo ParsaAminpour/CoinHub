@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
@@ -34,13 +35,18 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error
 	}
 
 	var user entities.User
-	username, exist := c.Get("username")
+	userID, exist := c.Get("userID")
 	if !exist {
-		zap.S().Infow("username missing in context")
+		zap.S().Infow("userID missing in context")
+	}
+	parsedUserID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		responseHelper.UnauthorizedStandard(c, "invalid user ID in token")
+		return err
 	}
 
 	orderUsecases := order_usercases.NewOrderUsecases(app.TxManager)
-	if err := app.UserRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
+	if err := app.UserRepository.GetUserByID(c, &user, parsedUserID); err != nil {
 		return err
 	}
 	priceInDecimal, _ := decimal.NewFromString(req.Price)
@@ -50,7 +56,6 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, app *internal.Application) error
 	}
 
 	zap.S().Infow("Limit order placed",
-		"username", username,
 		"userID", user.ID.String(),
 		"symbol", req.Symbol,
 		"orderType", req.OrderType,
@@ -83,14 +88,19 @@ func PlaceMarketOrderHTTPHandler(c *gin.Context, app *internal.Application) erro
 	}
 
 	var user entities.User
-	username, exist := c.Get("username")
+	userID, exist := c.Get("userID")
 	if !exist {
-		zap.S().Infow("username missing in context")
+		zap.S().Infow("userID missing in context")
+	}
+	parsedUserID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		responseHelper.UnauthorizedStandard(c, "invalid user ID in token")
+		return err
 	}
 
 	baseUrl, quoteUrl := strings.Split(req.Symbol, "-")[0], strings.Split(req.Symbol, "-")[1]
 	orderUsecases := order_usercases.NewOrderUsecases(*&app.TxManager)
-	if err := app.UserRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
+	if err := app.UserRepository.GetUserByID(c, &user, parsedUserID); err != nil {
 		return err
 	}
 	qtyInDecimal, _ := decimal.NewFromString(req.Qty)
@@ -115,7 +125,6 @@ func PlaceMarketOrderHTTPHandler(c *gin.Context, app *internal.Application) erro
 	}
 
 	zap.S().Infow("Market order placed",
-		"username", username,
 		"userID", user.ID.String(),
 		"symbol", req.Symbol,
 		"orderType", "market",
@@ -153,12 +162,17 @@ func CancelOrderHTTPHandler(c *gin.Context, app *internal.Application) error {
 	}
 
 	var user entities.User
-	username, exist := c.Get("username")
+	userID, exist := c.Get("userID")
 	if !exist {
-		zap.S().Infow("username missing in context")
+		zap.S().Infow("userID missing in context")
 	}
-	if err := app.UserRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
-		zap.S().Error("Failed to get user by username: ", err)
+	parsedUserID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		responseHelper.UnauthorizedStandard(c, "invalid user ID in token")
+		return err
+	}
+	if err := app.UserRepository.GetUserByID(c, &user, parsedUserID); err != nil {
+		zap.S().Error("Failed to get user by ID: ", err)
 		return err
 	}
 	orderUsecases := order_usercases.NewOrderUsecases(app.TxManager)

@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -45,9 +47,9 @@ func apiPostHandler(_handler apiPostHandlerSignature, app *internal.Application)
 
 func apiWebsocketHandler(_handlerReadLoop apiWebsocketHandlerSignature, userRepository repositories.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		username, exist := c.Get("username")
+		userID, exist := c.Get("userID")
 		if !exist {
-			zap.S().Infow("username missing in context")
+			zap.S().Infow("userID missing in context")
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -74,14 +76,21 @@ func apiWebsocketHandler(_handlerReadLoop apiWebsocketHandlerSignature, userRepo
 		defer conn.CloseNow()
 		conn.SetReadLimit(notification.MAX_MSG_BYTES)
 
+		parsedUserID, err := uuid.Parse(userID.(string))
+		if err != nil {
+			zap.S().Errorw("invalid userID in token", "error", err)
+			conn.Close(websocket.StatusInternalError, "invalid user ID")
+			return
+		}
+
 		var user entities.User
-		if err := userRepository.GetUserByUsername(c, &user, username.(string)); err != nil {
+		if err := userRepository.GetUserByID(c, &user, parsedUserID); err != nil {
 			zap.S().Errorw("failed to get user for websocket", "error", err)
 			conn.Close(websocket.StatusInternalError, "user lookup failed")
 			return
 		}
 
-		client := coinhub_ws.NewClient(user.ID.String(), username.(string), conn)
+		client := coinhub_ws.NewClient(user.ID.String(), user.ID.String(), conn)
 		_handlerReadLoop(c, client)
 	}
 }
