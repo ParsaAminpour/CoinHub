@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// NOTE: the google/btree is not thread-safe
+
 const (
 	OrderChanBufferSize int64 = 10_000
 )
