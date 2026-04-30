@@ -42,7 +42,6 @@ func (ou *OrderUsecases) SubmitOrder(
 		if err := matchEngine.SubmitOrder(eventProducer, *orderToProcess); err != nil {
 			return err
 		}
-		// TODO : other updates here:
 		return nil
 	})
 }

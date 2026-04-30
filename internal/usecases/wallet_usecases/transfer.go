@@ -99,12 +99,11 @@ func (
 	}
 	zap.S().Infow("signed transaction sended onchain", "txHash", trxHash)
 
-	// TODO : Add this pending transaction to the asynq queue to check the network confirmations.
 	transaction := entities.NewEVMTransaction(
 		callerUserID,
 		&trxHash,
 		int(chainId),
-		int(fromAccountNonce), // TODO : set proper value here
+		int(fromAccountNonce),
 		fromAccount.Address.Hex(),
 		&toPk,
 		int(gasPriceWei.Int64()),

@@ -51,13 +51,15 @@ type Configuration struct {
 		JWTSecret     string `env:"APP_JWT_SECRET" env-default:"thisisbestsecretintheworldsomething"`
 		SessionSecret string `env:"APP_SESSION_SECRET" env-default:"thisisbestsecretintheworldbrother"`
 
-		HDWalletMnemonic string `env:"HDWALLET_MNEMONIC" env-required:"true"`
-		ETHClientTestnet string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
-		ETHClientMainnet string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
-		NetworkStatus    string `env:"NETWORK_STATUS" env-default:"TESTNET"`
-
+		// TODO(feature): this network setup just supports two kind of network simultaneuosly, you can setup it better.
+		NetworkStatus           string `env:"NETWORK_STATUS" env-default:"TESTNET"`
+		HDWalletMnemonic        string `env:"HDWALLET_MNEMONIC" env-required:"true"`
+		ETHClientTestnet        string `env:"ETH_CLIENT_TESTNET" env-required:"true"`
+		ETHClientMainnet        string `env:"ETH_CLIENT_MAINNET" env-required:"true"`
 		WSClientEthereumMainnet string `env:"WS_CLIENT_ETHEREUM_MAINNET" env-required:"true"`
 		WSClientEthereumTestnet string `env:"WS_CLIENT_ETHEREUM_TESTNET" env-required:"true"`
+
+		IPInfoServiceToken string `env:"IPINFO_SERVICE_TOKEN" env-default:"f7469fe42c3c6c"`
 	}
 
 	MessageBroker struct {
@@ -109,14 +111,10 @@ type Configuration struct {
 		}
 	}
 
-	// TODO : Add the allowed origins here
+	// TODO(security) : Add the allowed origins here
 	AllowedOrigins struct {
 		FrontendApplication string `env:"ALLOWED_ORIGINS_FRONTEND_APPLICATION" env-default:"https://example.com"`
 	}
-	// Firebase struct {
-	// 	ServiceAccountJSON string `env:"FIREBASE_SERVICE_ACCOUNT_JSON"`
-	// 	ServiceAccountPath string `env:"FIREBASE_SERVICE_ACCOUNT_PATH" env-default:"./certs/firebase-service-account.json"`
-	// }
 
 	ServiceURLAPI string `env:"SERVICE_URL_API" env-default:"https://local.host"`
 }

@@ -43,6 +43,7 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 				SkipMatchEngine:   true,
 				SkipMessageBroker: true,
 			})
+			// NOTE : this consumer includes all topics except Order Submittion event
 			selectedTopics := adapterkafka.CoinhubAllOrderTopicsByEventTypes([]adapterkafka.EventType{
 				adapterkafka.EventOrderFilled,
 				adapterkafka.EventOrderPartial,
@@ -82,7 +83,7 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
 						return err
 					}
-					return handler.Handle(handlerCtx, event.(kafka.OrderStatusEvent), record)
+					return handler.UpdateOrderStatus(handlerCtx, event.(kafka.OrderStatusEvent), record)
 				},
 				groupID,
 				3,

@@ -31,6 +31,9 @@ type User struct {
 	Password    *string `gorm:"size:255;not null"`
 	UserProfile Profile `gorm:"foreignKey:UserID"`
 
+	RoleID uint `gorm:"not null;default:1"` // 1 = RoleUser
+	Role   Role `gorm:"foreignKey:RoleID"`
+
 	Gmail                   *string                 `gorm:"unique;index"`
 	GmailVerificationStatus GmailVerificationStatus `gorm:"type:varchar(20);default:'not_registered';not null"`
 	GmailVerifiedAt         *time.Time              `gorm:"default:null"`

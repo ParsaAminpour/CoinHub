@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"coinhub/internal"
+	"coinhub/internal/adapter/repository/postgres"
 	"coinhub/internal/domain/entities"
 	"coinhub/internal/infrastructure/configs"
 	"context"
@@ -12,11 +13,38 @@ import (
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func migrateDatabase(app *internal.Application) error {
 	if app.MySqlGorm != nil && app.Configs.App.Env != "PRODUCTION" && app.Configs.App.Debug {
+		// Drop all tables before recreating so stale column types never block migration.
+		// We use the model structs so GORM resolves each TableName() correctly,
+		// then issue a single DROP ... CASCADE to handle FK dependencies in one pass.
+		dropModels := []interface{}{
+			&entities.Trade{},
+			&entities.ProcessedOrderEvent{},
+			&entities.Order{},
+			&entities.TransferEvent{},
+			&entities.EvmTransaction{},
+			&entities.AssetBalance{},
+			&entities.WalletAccount{},
+			&entities.TradingPair{},
+			&entities.Asset{},
+			&entities.Profile{},
+			&entities.User{},
+			&entities.Role{},
+		}
+		tableNames := make([]string, 0, len(dropModels))
+		for _, m := range dropModels {
+			stmt := &gorm.Statement{DB: app.MySqlGorm}
+			if err := stmt.Parse(m); err == nil {
+				tableNames = append(tableNames, `"`+stmt.Table+`"`)
+			}
+		}
+
 		mgModels := []interface{}{
+			&entities.Role{}, // must migrate before User (FK: users.role_id → roles.id)
 			&entities.User{},
 			&entities.Profile{},
 			&entities.Asset{},
@@ -110,6 +138,10 @@ func RunMigrate(configs *configs.Configuration) *cobra.Command {
 				zap.S().Info("migrating database")
 				if err := migrateDatabase(app); err != nil {
 					zap.S().Error("failed to migrate database", zap.Error(err))
+				}
+				zap.S().Info("seeding primary roles")
+				if err := postgres.NewRoleRepository(app.MySqlGorm).Seed(ctx); err != nil {
+					zap.S().Error("failed to seed roles", zap.Error(err))
 				}
 			}
 

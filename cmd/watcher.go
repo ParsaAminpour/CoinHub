@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 
@@ -15,6 +16,7 @@ import (
 )
 
 func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
+	var fromBlock string
 	cmd := &cobra.Command{
 		Use:   "watcher",
 		Short: "Run the onchain watcher",
@@ -35,8 +37,14 @@ func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
 				SkipMessageBroker: true,
 			})
 
-			// TODO : add onchain listener for all available and supporting networks
-			if err := blockchain.StartOnchainListener(ctx, app); err != nil {
+			if fromBlock == "" {
+				zap.S().Fatalw("fromBlock is not set")
+			}
+			fromBlockInt, err := strconv.Atoi(fromBlock)
+			if err != nil {
+				zap.S().Fatalw("invalid fromBlock value", "fromBlock", fromBlock, "error", err)
+			}
+			if err := blockchain.StartOnchainListener(ctx, fromBlockInt, app); err != nil {
 				zap.S().Fatalw("failed to start onchain listener", "error", err)
 			}
 
@@ -56,5 +64,6 @@ func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
 			zap.S().Debug("shutdown complete")
 		},
 	}
+	cmd.Flags().StringVar(&fromBlock, "from-block", "10334076", "the block that we start to listening from")
 	return cmd
 }

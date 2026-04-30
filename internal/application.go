@@ -15,13 +15,11 @@ import (
 	"coinhub/internal/infrastructure/market"
 	"coinhub/internal/infrastructure/metrics"
 	"context"
-	"flag"
 	"fmt"
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-redis/redis/v8"
-	"github.com/gorilla/websocket"
 	"github.com/hibiken/asynq"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -63,6 +61,7 @@ type Application struct {
 	Configs *configs.Configuration
 
 	UserRepository          repositories.UserRepository
+	RoleRepository          repositories.RoleRepository
 	WalletAccountRepository repositories.WalletAccountRepository
 	TransactinRepository    repositories.EVMTransactionRepository
 	TransferRepository      repositories.TransferEventRepository
@@ -93,8 +92,6 @@ type Application struct {
 	EngineEventProducer *kafka.EngineEventProducer
 	OrderEventConsumer  *kafka.OrderEventConsumer // we don't need this
 	KafkaTopicManager   *kafka.TopicManager
-
-	WsClient *websocket.Conn // TODO : Remove this is we don't need it
 
 	AuthGmailCache           *cache.AuthGmailCache
 	PendingTransactionsCache *cache.PendingTransactionsCache
@@ -232,7 +229,18 @@ func (app *Application) registerMatchEngine(ctx context.Context, tradingPairRepo
 	for _, pair := range availableAssets {
 		availableAssetsLight = append(availableAssetsLight, *engine.NewSupportedPairLight(pair.ID.String(), pair.Symbol()))
 	}
-	app.OrderMatchEngine = engine.NewMatchEngine(ctx, configs, availableAssetsLight).(*engine.MatchEngine)
+	me, err := engine.NewMatchEngine(ctx, configs, availableAssetsLight)
+	if err != nil {
+		return err
+	}
+	engine, ok := me.(*engine.MatchEngine)
+	if !ok {
+		return fmt.Errorf("failed to cast Engine to MatchEngine")
+	}
+	if err != nil {
+		return err
+	}
+	app.OrderMatchEngine = engine
 	return nil
 }
 
@@ -287,6 +295,7 @@ func (app *Application) registerAsynqClient() error {
 
 func (app *Application) registerRepositories() error {
 	app.UserRepository = repository.NewUserRepository(app.MySqlGorm)
+	app.RoleRepository = repository.NewRoleRepository(app.MySqlGorm)
 	app.WalletAccountRepository = repository.NewWalletRepository(app.MySqlGorm)
 	app.TransactinRepository = repository.NewEVMTransactionRepository(app.MySqlGorm)
 	app.TransferRepository = repository.NewTransferEventRepository(app.MySqlGorm)
@@ -362,17 +371,6 @@ func (app *Application) registerRedis(ctx context.Context) error {
 	}
 	app.RedisClient = client
 	zap.S().Infow("Redis client registered ✅", "address", app.Configs.RedisAddress())
-	return nil
-}
-
-func (app *Application) registerWebsocketClient(ctx context.Context, clientUrl string, network string) error {
-	addr := flag.String("wsClientAddr", clientUrl, fmt.Sprintf("Network"))
-	// u := url.URL{Scheme: "ws", Host: *addr, Path: "/echo"}
-	c, _, err := websocket.DefaultDialer.Dial(*addr, nil)
-	if err != nil {
-		return err
-	}
-	app.WsClient = c
 	return nil
 }
 

@@ -3,10 +3,13 @@ package http
 import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/messaging/kafka"
+	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/ipinfo/go/v2/ipinfo"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
@@ -26,6 +29,21 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 	// 	zap.S().Errorf("failed to enqueue transfer event task: %v", err)
 	// 	return err
 	// }
+	if app.Configs.App.IPInfoServiceToken == "" {
+		zap.S().Fatal("missing IPINFO_TOKEN")
+	}
+	client := ipinfo.NewLiteClient(nil, nil, app.Configs.App.IPInfoServiceToken)
+
+	details, err := client.GetIPInfo(net.ParseIP(c.ClientIP()))
+	if err != nil {
+		zap.S().Fatal(err)
+	}
+	fmt.Println("clientIP: ", c.ClientIP())
+	fmt.Println(details.IP.String()) // "8.8.8.8"
+	fmt.Println(details.CountryCode) // "US"
+	fmt.Println(details.Country)     // "United States"
+	fmt.Println(details.ASN)         // "AS15169"
+	fmt.Println(details.ASName)      // "Google LLC"
 
 	event := kafka.NewOrderEvent(
 		uuid.NewString(),

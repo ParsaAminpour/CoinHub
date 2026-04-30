@@ -13,18 +13,18 @@ import (
 // Trade records a single matched execution between a maker (resting) order
 // and a taker (incoming) order. One order fill may produce one Trade row.
 type Trade struct {
-	ID          string          `gorm:"type:uuid;primaryKey"`
-	Pair        string          `gorm:"type:varchar(20);not null;index"`  // e.g. "BTC/USDT"
-	MakerOrderID string         `gorm:"type:uuid;not null;index"`         // resting order
-	TakerOrderID string         `gorm:"type:uuid;not null;index"`         // incoming order
-	MakerOrder  Order           `gorm:"foreignKey:MakerOrderID"`
-	TakerOrder  Order           `gorm:"foreignKey:TakerOrderID"`
-	Price       decimal.Decimal `gorm:"type:numeric;not null"`            // execution price
-	Quantity    decimal.Decimal `gorm:"type:numeric;not null"`            // quantity exchanged
-	ExecutedAt  time.Time       `gorm:"not null"`                         // when the match happened
-	CreatedAt   time.Time       `gorm:"autoCreateTime"`
-	UpdatedAt   time.Time       `gorm:"autoUpdateTime"`
-	DeletedAt   gorm.DeletedAt  `gorm:"index"`
+	ID           string          `gorm:"primaryKey"`
+	Pair         string          `gorm:"type:varchar(20);not null;index"` // e.g. "BTC/USDT"
+	MakerOrderID string          `gorm:"index"`                           // resting order
+	TakerOrderID string          `gorm:"index"`                           // incoming order
+	MakerOrder   Order           `gorm:"foreignKey:MakerOrderID;references:ID"`
+	TakerOrder   Order           `gorm:"foreignKey:TakerOrderID;references:ID"`
+	Price        decimal.Decimal `gorm:"type:numeric;not null"` // execution price
+	Quantity     decimal.Decimal `gorm:"type:numeric;not null"` // quantity exchanged
+	ExecutedAt   time.Time       `gorm:"not null"`              // when the match happened
+	CreatedAt    time.Time       `gorm:"autoCreateTime"`
+	UpdatedAt    time.Time       `gorm:"autoUpdateTime"`
+	DeletedAt    gorm.DeletedAt  `gorm:"index"`
 }
 
 func (Trade) TableName() string {

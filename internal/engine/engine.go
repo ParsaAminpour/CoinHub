@@ -19,11 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// this section will run a goroutine running a price-time priority match engine associated to each supported pairs
-
 const (
 	OrderChanBufferSize int64 = 10_000
-	TradeChanBufferSize int64 = 10_000 // TODO : do we need buffered channel for the trade?
 )
 
 // [HTTP Handlers]  →  orderCh  →  [Engine.Run()]  →  tradeCh  →  [Trade Consumer]
@@ -75,16 +72,21 @@ func NewSupportedPairLight(id string, symbol string) *SupportedPairLight {
 	return supportedAssetLight
 }
 
-// TODO : handle the errors too.
-func NewMatchEngine(ctx context.Context, configs configs.Configuration, availableAssets []SupportedPairLight) Engine {
-	orderEventProduced, _ := initializeEventProducer(ctx, configs)
-	orderRouter, _ := initializeOrderRouter(ctx, availableAssets)
+func NewMatchEngine(ctx context.Context, configs configs.Configuration, availableAssets []SupportedPairLight) (Engine, error) {
+	orderEventProduced, err := initializeEventProducer(ctx, configs)
+	if err != nil {
+		return nil, err
+	}
+	orderRouter, err := initializeOrderRouter(ctx, availableAssets)
+	if err != nil {
+		return nil, err
+	}
 	orderbooks := initializeOrderbooks(availableAssets)
 	return &MatchEngine{
 		Orderbooks:         orderbooks,
 		OrderRouter:        orderRouter,
 		OrderEventProducer: orderEventProduced,
-	}
+	}, nil
 }
 
 func initializeOrderbooks(availableAssets []SupportedPairLight) map[string]*Orderbook {
@@ -139,7 +141,6 @@ func initializeOrderSubmittionEventDLQ(ctx context.Context, configs configs.Conf
 		zap.S().Errorw("failed to create DLQ producer client", "error", dlqErr)
 	}
 
-	// TODO : defer DLQ producer
 	return dlqProducerCleient, nil
 }
 
@@ -265,13 +266,10 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.EngineEventPro
 	return nil
 }
 
-// act like a demultiplexer, Fan-out pattern, reads from original stream `me.OrderChan`
-// NOTE : this function will run concurrently for each system available pair.
-// NOTE : the number of workers is based on the number of available pairs that we support.
-// @note this function get all orders comes from the main stream, then it route the incoming order to its assocaited engine-orderbook.
-// TODO : run the consumer in better approach.
-// Act as the main stream consumer. gives the result to the appropriate channel to handle that.
-// It listens to the ORDER_SUBMITTED and TRADE_EXECUTED events and route the appropriate order to the appropriate channel.
+// Acts as the main event consumer for order-related events from Kafka.
+// Runs as a single worker, not per pair. Responsible for receiving events from the stream and dispatching them to the correct per-pair order handler via the OrderRouter.
+// Handles ORDER_SUBMITTED and TRADE_EXECUTED events, processing or routing each event as needed.
+// This function ensures that incoming orders and trades are demultiplexed and handled by the corresponding pair's orderbook worker channel.
 func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kafka.EngineEventProducer, orderRepository *repositories.OrderRepository, tradeRepository *repositories.TradeRepository, configs configs.Configuration, workerID string) error {
 	deduper, ok := (*orderRepository).(interface {
 		MarkEventProcessed(ctx context.Context, consumerName string, eventID string) (bool, error)

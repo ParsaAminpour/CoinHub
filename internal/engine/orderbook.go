@@ -20,7 +20,7 @@ var (
 
 type PriceLevel struct {
 	PriceLevel decimal.Decimal
-	Orders     []*Order // TODO : using B-Tree instead of slices
+	Orders     []*Order // TODO(feature) : using B-Tree instead of slices
 }
 
 func NewPriceLevel(orders []*Order, price decimal.Decimal) *PriceLevel {
@@ -118,7 +118,6 @@ type Orderbook struct {
 }
 
 // NOTE : you can use any Matching algorithm you want based on the data structure you use for the orders
-// TODO : Remove the logs after testing
 // MatchLimit attempts to match an incoming limit order against the existing order book levels.
 // It processes the order according to price-time priority, supporting both buy and sell sides,
 // and ensures no self-trading occurs. The function emits appropriate kafka order events via
@@ -308,7 +307,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 		}
 	}
 
-	return nil, nil // TODO : Return trade if there was any match
+	return nil, nil
 }
 
 // the price of incomingOrder is going to be the market price, not choosen by the ow

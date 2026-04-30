@@ -11,6 +11,7 @@ INSERT INTO users (
     status,
     is_verified,
     local_timezone,
+    role_id,
     created_at,
     updated_at
 ) VALUES (
@@ -23,6 +24,7 @@ INSERT INTO users (
     'active',
     true,
     'UTC',
+    3, -- system role
     NOW(),
     NOW()
 )

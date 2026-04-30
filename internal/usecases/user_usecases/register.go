@@ -19,7 +19,6 @@ func NewRegisterUserUsecases(txManager repositories.TxManager) RegisterUserUseca
 	return RegisterUserUsecases{txManager: txManager}
 }
 
-// TODO : make this atomic, but how with this architecture??
 func (r *RegisterUserUsecases) Register(ctx context.Context, walletService services.WalletService, user *entities.User) error {
 	return r.txManager.WithinTransaction(ctx, func(ctx context.Context, tx repositories.Tx) error {
 		if err := tx.Users().Create(ctx, user); err != nil {

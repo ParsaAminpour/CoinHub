@@ -30,8 +30,8 @@ const (
 )
 
 type Order struct {
-	ID        string          `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"` // Unique order identifier
-	UserID    string          `gorm:"type:uuid;not null;index"`                       // User that placed the order
+	ID        string          `gorm:"primaryKey;default:gen_random_uuid()"` // Unique order identifier
+	UserID    string          `gorm:"not null;index"`                       // User that placed the order
 	User      User            `gorm:"foreignKey:UserID"`
 	Pair      string          `gorm:"type:varchar(20);not null;index"`          // Trading pair, e.g., "BTC/USDT"
 	Type      OrderType       `gorm:"type:varchar(10);not null"`                // Order type: limit, market, cancel
