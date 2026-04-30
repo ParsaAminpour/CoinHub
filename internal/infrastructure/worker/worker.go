@@ -47,6 +47,6 @@ func RegisterWorkerHandler(mux *asynq.ServeMux, app *internal.Application) {
 		return tasks.HandleEmailVerificationCodeSendOp(ctx, task, app.RedisClient, app.MailDialer, app.AuthGmailCache)
 	})
 	mux.HandleFunc(tasks.TransferEventCreateV1, func(ctx context.Context, task *asynq.Task) error {
-		return tasks.HandleTransferEventTask(ctx, task, app.WalletAccountRepository, app.TransferRepository, app.AssetRepository, app.PendingTransactionsCache)
+		return tasks.HandleTransferEventTask(ctx, task, app.ETHClient, app.WalletAccountRepository, app.TransferRepository, app.AssetRepository, app.PendingTransactionsCache)
 	})
 }

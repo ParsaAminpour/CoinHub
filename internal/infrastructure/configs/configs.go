@@ -111,14 +111,10 @@ type Configuration struct {
 		}
 	}
 
-	// TODO : Add the allowed origins here
+	// TODO(security) : Add the allowed origins here
 	AllowedOrigins struct {
 		FrontendApplication string `env:"ALLOWED_ORIGINS_FRONTEND_APPLICATION" env-default:"https://example.com"`
 	}
-	// Firebase struct {
-	// 	ServiceAccountJSON string `env:"FIREBASE_SERVICE_ACCOUNT_JSON"`
-	// 	ServiceAccountPath string `env:"FIREBASE_SERVICE_ACCOUNT_PATH" env-default:"./certs/firebase-service-account.json"`
-	// }
 
 	ServiceURLAPI string `env:"SERVICE_URL_API" env-default:"https://local.host"`
 }

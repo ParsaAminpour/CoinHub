@@ -10,7 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO : is there any better option to store these logs instead of a package level state variable?
 var (
 	evmTokenLogs chan types.Log
 )

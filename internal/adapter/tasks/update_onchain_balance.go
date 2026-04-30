@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 )
@@ -48,12 +51,11 @@ func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, tr
 	if err != nil {
 		return err
 	}
-	// TODO : set appropriate opts for this section.
 	info, err := asynqClient.EnqueueContext(ctx, task,
 		asynq.Queue("transaction"),
 		asynq.MaxRetry(2),
 		asynq.Timeout(60*time.Second),
-		asynq.Retention(24*time.Hour),  // how long to keep the task in the queue
+		asynq.Retention(1*time.Hour),   // how long to keep the task in the queue
 		asynq.ProcessIn(5*time.Second), // how long to wait before processing the task
 	)
 	if err != nil {
@@ -64,8 +66,7 @@ func EnqueueTransferEventTask(ctx context.Context, asynqClient *asynq.Client, tr
 }
 
 // NOTE: Here we caught up a transaction that is related to our user, now we are going to check the transaction and update its relevant status.
-// TODO : is there any better way to check the transaction status instead of log::Removed?
-func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository, pendingTransactionsCache *cache.PendingTransactionsCache) error {
+func HandleTransferEventTask(ctx context.Context, t *asynq.Task, ethClient *ethclient.Client, walletRepo repositories.WalletAccountRepository, transferEventRepo repositories.TransferEventRepository, assetRepo repositories.AssetRepository, pendingTransactionsCache *cache.PendingTransactionsCache) error {
 	var payload TransferEventPayload
 	err := json.Unmarshal(t.Payload(), &payload)
 	if err != nil {
@@ -111,8 +112,21 @@ func HandleTransferEventTask(ctx context.Context, t *asynq.Task, walletRepo repo
 		return fmt.Errorf("asset not found")
 	}
 
-	var transferStatus entities.TransactionStatus = entities.RevertedStatus
-	if !payload.IsRemoved {
+	receipt, err := ethClient.TransactionReceipt(ctx, common.HexToHash(payload.TrxHash))
+	if err != nil {
+		zap.S().Warnw("Failed to fetch transaction receipt, will retry", "error", err, "trxHash", payload.TrxHash)
+		return fmt.Errorf("transaction receipt not available yet: %w", err)
+	}
+
+	var transferStatus entities.TransactionStatus
+	switch {
+	case payload.IsRemoved:
+		// The log was removed due to a chain reorganization.
+		transferStatus = entities.RevertedStatus
+	case receipt.Status == types.ReceiptStatusFailed:
+		// The transaction was included in a block but the EVM execution reverted.
+		transferStatus = entities.RevertedStatus
+	default:
 		transferStatus = entities.ConfirmedStatus
 	}
 	transferEvent := entities.NewTransferEvent(

@@ -34,7 +34,6 @@ func (ass *AssetRepository) GetAvailableAssets(ctx context.Context) ([]entities.
 	return availableAssets, nil
 }
 
-// TODO : refactor this functoin
 func (ass *AssetRepository) GetAssetByCotnractAddress(ctx context.Context, ca string) (*entities.Asset, error) {
 	allAssets := []entities.Asset{}
 	if err := ass.db.Model(entities.Asset{}).WithContext(ctx).Where("asset_address = ?", ca).Find(&allAssets).Error; err != nil {

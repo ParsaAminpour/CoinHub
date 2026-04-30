@@ -20,7 +20,6 @@ const (
 
 type OrderEventTopic func(metadata string) string
 
-// TODO : Remove metadata if we don't need it, we don't need it for now.
 var (
 	CoinhubOpenOrderEventTopic OrderEventTopic = func(metadata string) string {
 		return "coinhub.order.open"

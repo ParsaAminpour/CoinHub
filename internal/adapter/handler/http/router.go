@@ -2,7 +2,6 @@ package http
 
 import (
 	"coinhub/internal"
-	"coinhub/internal/adapter/handler/http/helper"
 	"coinhub/internal/adapter/handler/http/schema"
 	coinhub_ws "coinhub/internal/adapter/handler/websockets"
 	"coinhub/internal/adapter/handler/websockets/notification"
@@ -29,19 +28,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-type apiGetHandlerSignature func(c *gin.Context, app *internal.Application) error
-type apiPostHandlerSignature func(c *gin.Context, app *internal.Application) error
+type HttpAPIHandler interface{}
+
+type apiGetHandlerSignature func(c *gin.Context, handlerCtx *HttpAPIHandler) error
+type apiPostHandlerSignature func(c *gin.Context, handlerCtx *HttpAPIHandler) error
 type apiWebsocketHandlerSignature func(c *gin.Context, client *coinhub_ws.Client) error
 
-func apiGetHandler(_handler apiGetHandlerSignature, app *internal.Application) gin.HandlerFunc {
+func apiGetHandler(_handler apiGetHandlerSignature, handlerCtx *HttpAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_handler(c, app)
+		_handler(c, handlerCtx)
 	}
 }
 
-func apiPostHandler(_handler apiPostHandlerSignature, app *internal.Application) gin.HandlerFunc {
+func apiPostHandler(_handler apiPostHandlerSignature, handlerCtx *HttpAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_handler(c, app)
+		_handler(c, handlerCtx)
 	}
 }
 
@@ -95,7 +96,6 @@ func apiWebsocketHandler(_handlerReadLoop apiWebsocketHandlerSignature, userRepo
 	}
 }
 
-// TODO : add health check routes.
 func SetupRouter(app *internal.Application) error {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
@@ -110,7 +110,7 @@ func SetupRouter(app *internal.Application) error {
 		router.Use(security.SecurityHeadersMiddleware())  // security response headers
 		router.Use(forwarded())                           // extract real IP from X-Forwarded-For
 		router.Use(rateLimiter(app.RateLimiterCache, 60)) // 60 req/min per IP
-		router.SetTrustedProxies([]string{"192.168.1.2"}) // TODO : add the load balancer address here
+		// router.SetTrustedProxies([]string{"192.168.1.2"}) // TODO(security) : add the load balancer address here
 		router.Use(cors.New(cors.Config{
 			AllowOrigins:     []string{app.Configs.AllowedOrigins.FrontendApplication},
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
@@ -177,17 +177,23 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	return nil
 }
 
-// TODO : don't pass the entire application structure to the HTTP handlers!
 func registerOrderRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	orderHandler := NewOrderHandler(
+		app.UserRepository,
+		app.TxManager,
+		app.OrderMatchEngine,
+		app.EngineEventProducer,
+		app.MarketPriceFeed,
+	)
+
 	orderGroup := r.Group("/order")
 	orderGroup.Use(security.AuthMiddleware())
 	orderGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
 
-	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, app))
-	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, app))
-	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, app))
+	orderGroup.POST("/limit", apiPostHandler(PlaceLimitOrderHTTPHandler, &orderHandler))
+	orderGroup.POST("/market", apiPostHandler(PlaceMarketOrderHTTPHandler, &orderHandler))
+	orderGroup.DELETE("/cancel", apiPostHandler(CancelOrderHTTPHandler, &orderHandler))
 
-	// register websocket routes assocaited to the orders.
 	if err := registerOrderWebsocketRoutes(orderGroup, app); err != nil {
 		return err
 	}
@@ -209,45 +215,57 @@ func registerUserRoutes(r *gin.RouterGroup, app *internal.Application) error {
 }
 
 func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	authHandler := NewAuthHandler(
+		&app.TxManager,
+		&app.WalletService,
+		app.UserRepository,
+		app.RedisClient,
+		app.AuthGmailCache,
+		app.AsynqClient,
+		*app.Configs,
+	)
+
 	authGroup := r.Group("auth")
-	authGroup.POST("/register", apiPostHandler(RegisterUserHandler, app))
-	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsernameHandler, app))
-	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, app))
-	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, app))
-	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, app))
-	authGroup.POST("/mock/login", apiPostHandler(func(c *gin.Context, app *internal.Application) error {
-		responseHelper := helper.NewResponseHelper()
-		jwtToken, err := security.GenerateToken("parsa") // TODO : remove this
-		if err != nil {
-			return err
-		}
-		responseHelper.SuccessStandard(c, schema.LoginUserResponse{
-			Code:     http.StatusOK,
-			Message:  "user logged in with username successfully",
-			JWTToken: jwtToken,
-		})
-		return nil
-	}, app))
+	authGroup.POST("/register", apiPostHandler(RegisterUserHandler, &authHandler))
+	authGroup.POST("/login/username", apiPostHandler(LoginUserWithUsernameHandler, &authHandler))
+	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, &authHandler))
+	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, &authHandler))
+	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, &authHandler))
 	return nil
 }
 
 func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) error {
-	authGroup := r.Group("transaction")
-	authGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
-	authGroup.Use(security.AuthMiddleware())
-	authGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, app))
+	transactionHandler := NewTransactionHandler(
+		app.UserRepository,
+		app.WalletAccountRepository,
+		app.TransactinRepository,
+		app.WalletService,
+		app.ETHClient,
+		app.AsynqClient,
+		app.PendingTransactionsCache,
+	)
+
+	transactionGroup := r.Group("transaction")
+	transactionGroup.Use(security.AuthMiddleware())
+	transactionGroup.Use(RequireRole(app.UserRepository, entities.RoleUser))
+	transactionGroup.POST("/withdraw", apiPostHandler(WithdrawHandler, &transactionHandler))
 	return nil
 }
 
 // NOTE : Contains system and sensitive operations — requires admin or system role.
 func registerSystemRoutes(r *gin.RouterGroup, app *internal.Application) error {
+	systemHandler := NewSystemHandler(
+		app.TradingPairRepository,
+		app.KafkaTopicManager,
+	)
+
 	systemGroup := r.Group("system")
 	systemGroup.Use(security.AuthMiddleware())
 	systemGroup.Use(RequireRole(app.UserRepository, entities.RoleAdmin, entities.RoleSystem))
 
 	operationGroup := systemGroup.Group("operation")
 	assetOperationsGroup := operationGroup.Group("asset")
-	assetOperationsGroup.POST("/add", apiPostHandler(CreateAssetAdminOperationHandler, app))
+	assetOperationsGroup.POST("/add", apiPostHandler(CreateAssetAdminOperationHandler, &systemHandler))
 	return nil
 }
 
