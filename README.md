@@ -72,17 +72,17 @@ Background jobs (email codes, pending transaction tracking) run through Asynq (R
 ## Architecture
 
 ```
-┌─────────────┐    Kafka     ┌──────────────────┐
+┌─────────────┐    Kafka     ┌───────────────────┐
 │  HTTP API   │ ──────────▶  │  Matching Engine  │
-│  (Gin)      │              │  (per-pair gorout.)│
-└─────────────┘              └──────────────────┘
+│  (Gin)      │              │ (per-pair gorout.)│
+└─────────────┘              └───────────────────┘
        │                              │
        │                         Kafka events
        │                              │
        ▼                     ┌────────┴────────┐
-  PostgreSQL          Projection       Notification
-  (GORM)             Consumer         Consumer
-                     (writes DB)      (WebSocket push)
+   PostgreSQL            Projection       Notification
+     (GORM)               Consumer          Consumer
+                         (writes DB)     (WebSocket push)
 ```
 
 Each process (`api`, `engine`, `worker`, `order-projection-consumer`, `notification-consumer`, `watcher`) runs independently. Kafka is the shared state between them.
@@ -223,6 +223,27 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 1. Insert the base and quote assets via `POST /system/operation/asset/add` (requires admin token)
 2. Insert the trading pair record in the database (migration or seed script)
 3. Restart the engine — it reads active pairs at startup and creates an order book + goroutine per pair. Kafka topics are auto-created.
+
+---
+
+## Roadmap
+
+### In progress
+
+- [ ] B-Tree for order storage within price levels — replaces the current slice-based approach for O(log n) insertion/lookup in deep books (`internal/engine/orderbook.go`)
+
+### Features
+
+- [ ] Asset creation endpoint — admin flow to add new EVM assets without a manual DB insert (`internal/adapter/handler/http/asset.go`)
+- [ ] Multi-network config — currently hardcoded to support two networks simultaneously (`internal/infrastructure/configs/configs.go`)
+- [ ] Graceful shutdown — drain Kafka consumers and close DB/Redis/WebSocket connections cleanly on SIGTERM (`internal/application.go`)
+- [ ] `expired` order status — define the conditions under which an order transitions to expired vs cancelled (`internal/adapter/messaging/kafka/event.go`)
+
+### Security
+
+- [ ] Lock down WebSocket CORS — remove `InsecureSkipVerify` and restrict to actual origins (`internal/adapter/handler/http/router.go`)
+- [ ] Set trusted proxy addresses for `X-Forwarded-For` (load balancer IP) (`internal/adapter/handler/http/router.go`)
+- [ ] Sentry integration for crash reporting in production (`internal/adapter/handler/http/router.go`)
 
 ---
 
