@@ -172,7 +172,7 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.EngineEventProducer, inc
 
 	if err := eventProducer.PublishOrderEvent(rawOrderEventForIncomingOrder); err != nil {
 		zap.S().Errorw("Failed to publish order event", "error", err, "orderID", incomingOrder.ID)
-		return fmt.Errorf("failed to publish order event: %w", err)
+		return fmt.Errorf("%w: %w", ErrPublishOrderEventFailed, err)
 	}
 	metrics.OrdersSubmittedTotal.WithLabelValues(incomingOrder.Pair, string(incomingOrder.Type), string(incomingOrder.Side)).Inc()
 	return nil
@@ -195,7 +195,7 @@ func (me *MatchEngine) SubmitCancelOrder(eventProducer *kafka.EngineEventProduce
 	)
 	if err := eventProducer.PublishOrderEvent(rawCancelOrderEvent); err != nil {
 		zap.S().Errorw("Failed to publish cancel order event", "error", err, "orderID", incomingCancelOrder.ID)
-		return fmt.Errorf("failed to publish cancel order event: %w", err)
+		return fmt.Errorf("%w: %w", ErrPublishCancelEventFailed, err)
 	}
 	return nil
 }
@@ -204,16 +204,16 @@ func (me *MatchEngine) orderTypeRouter(eventProducer *kafka.EngineEventProducer,
 	ob, ok := me.Orderbooks[order.Pair]
 	if !ok {
 		zap.S().Errorw("no orderbook found for pair, order dropped", "pair", order.Pair, "orderID", order.ID)
-		return fmt.Errorf("no orderbook for pair %s", order.Pair)
+		return fmt.Errorf("%w: %s", ErrNoOrderbookForPair, order.Pair)
 	}
 	var err error
 	switch order.Type {
 	case OrderTypeLimit:
-		_, err = ob.MatchLimit(eventProducer, order)
+		err = ob.MatchLimit(eventProducer, order)
 	case OrderTypeMarket:
-		_, err = ob.MatchMarket(eventProducer, order)
+		err = ob.MatchMarket(eventProducer, order)
 	case OrderTypeCancel:
-		_, err = ob.Cancel(context.Background(), nil, order)
+		err = ob.Cancel(context.Background(), nil, order)
 	}
 	return err
 }
@@ -331,7 +331,7 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.EngineEventProducer, assetRepo *repositories.AssetRepository, orderRepository *repositories.OrderRepository, tradeRepository *repositories.TradeRepository, configs configs.Configuration) error {
 	orderEventConsumer, err := initializeOrderSubmittionEventConsumer(ctx, configs)
 	if err != nil {
-		return fmt.Errorf("failed to initialize order submission consumer: %w", err)
+		return fmt.Errorf("%w: %w", ErrInitOrderConsumerFailed, err)
 	}
 	me.OrderEventConsumer = orderEventConsumer
 

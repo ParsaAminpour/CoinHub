@@ -1,8 +1,7 @@
 package engine
 
 import (
-	"errors"
-
+	"github.com/google/btree"
 	"github.com/shopspring/decimal"
 )
 
@@ -18,8 +17,22 @@ func NewPriceLevel(orders []*Order, price decimal.Decimal) *PriceLevel {
 	}
 }
 
-func (pl *PriceLevel) BestOrderInPriceLevel() (*Order, error) {
-	return pl.Orders[len(pl.Orders)], nil
+type AskLevel struct{ *PriceLevel }
+
+func (a AskLevel) Less(than btree.Item) bool {
+	other := than.(AskLevel)
+	return a.PriceLevel.PriceLevel.LessThan(other.PriceLevel.PriceLevel)
+}
+
+type BidLevel struct{ *PriceLevel }
+
+func (b BidLevel) Less(than btree.Item) bool {
+	other := than.(BidLevel)
+	return b.PriceLevel.PriceLevel.GreaterThan(other.PriceLevel.PriceLevel)
+}
+
+func (s *PriceLevel) RemoveFilledOrderInPriceLevel(side OrderSide, idx int) {
+	s.Orders = append(s.Orders[:idx], s.Orders[idx+1:]...)
 }
 
 func (pl *PriceLevel) RemoveOrderInPriceLevelBasedOnOrderID(orderID string) error {
@@ -29,9 +42,5 @@ func (pl *PriceLevel) RemoveOrderInPriceLevelBasedOnOrderID(orderID string) erro
 			return nil
 		}
 	}
-	return errors.New("order not found in price level")
-}
-
-func (s *PriceLevel) RemoveFilledOrderInPriceLevel(side OrderSide, idx int) {
-	s.Orders = append(s.Orders[:idx], s.Orders[idx+1:]...)
+	return ErrOrderNotFoundInPriceLevel
 }

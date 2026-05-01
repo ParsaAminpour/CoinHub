@@ -15,66 +15,66 @@ import (
 // NOTE : The "sweet spot" comment in below refers to CPU cache lines — a node with ~32–64 keys fits well in L1/L2 cache, so scanning keys within a node is fast sequential memory access, not random pointer chasing.
 type Side struct {
 	// The last order of the slice has the lowest price level
-	Levels []*PriceLevel // could be bids or asks
-	Lvls   []*btree.BTreeG[*PriceLevel]
-	isAsk  bool // Control the sort direction
-	Degree int  // sweet spot for cache performance - branching factor.
+	Levels *btree.BTreeG[*PriceLevel] // could be bids or asks
+	isAsk  bool                       // Control the sort direction
+	Degree int                        // sweet spot for cache performance - branching factor.
 }
 
 func NewSide(degree int, isAsk bool) Side {
-	// TODO : implement here
-	return Side{}
+	// true if within that ordering, 'a' < 'b'.
+	less := func(a, b *PriceLevel) bool {
+		if isAsk {
+			return a.PriceLevel.LessThan(b.PriceLevel) // asks: ascending
+		}
+		return a.PriceLevel.GreaterThan(b.PriceLevel) // bids: discending
+	}
+	return Side{
+		Levels: btree.NewG[*PriceLevel](degree, less),
+		isAsk:  isAsk,
+		Degree: degree,
+	}
 }
 
-func (s *Side) Add(order Order, price decimal.Decimal) error {
-	// If an existing level matches the price, append the order there (FIFO within level).
-	for _, lvl := range s.Levels {
-		if lvl.PriceLevel.Equal(price) {
-			lvl.Orders = append(lvl.Orders, &order)
-			return nil
-		}
+func (s *Side) Add(order *Order) {
+	key := &PriceLevel{PriceLevel: order.Price}
+	existing, ok := s.Levels.Get(key)
+	if !ok {
+		newPriceLevel := &PriceLevel{PriceLevel: order.Price, Orders: make([]*Order, 0)}
+		s.Levels.ReplaceOrInsert(newPriceLevel)
 	}
-
-	// New price level — insert at the correct sorted position.
-	// Bids: descending (highest price first).
-	// Asks: ascending (lowest price first).
-	newLevel := NewPriceLevel([]*Order{&order}, price)
-	inserted := false
-	newLevels := make([]*PriceLevel, 0, len(s.Levels)+1)
-	for _, lvl := range s.Levels {
-		if !inserted {
-			isBefore := (order.Side == SideBuy && price.GreaterThan(lvl.PriceLevel)) ||
-				(order.Side == SideSell && price.LessThan(lvl.PriceLevel))
-			if isBefore {
-				newLevels = append(newLevels, newLevel)
-				inserted = true
-			}
-		}
-		newLevels = append(newLevels, lvl)
-	}
-	if !inserted {
-		newLevels = append(newLevels, newLevel)
-	}
-	s.Levels = newLevels
-	return nil
+	existing.Orders = append(existing.Orders, order)
 }
 
 // the best price level for the bids is the first index, meaning the buyer wants to buy at highest price level.
 // the best price level for the asks is the first index, meaning the seller wants to sell at lowest price level.
-func (s *Side) BestPriceLevel() *PriceLevel {
-	if len(s.Levels) == 0 {
-		return nil
-	}
-	return s.Levels[0]
+func (s *Side) BestPriceLevel() (*PriceLevel, bool) {
+	var best *PriceLevel
+	s.Levels.Ascend(func(p1 *PriceLevel) bool {
+		best = p1
+		return false
+	})
+	return best, best != nil
 }
 
 func (s *Side) PopFront() {
-	if len(s.Levels) == 0 {
-		return
-	}
-	best := s.Levels[0]
-	best.Orders = best.Orders[1:]
-	if len(best.Orders) == 0 {
-		s.Levels = s.Levels[1:]
-	}
+
+}
+
+// RemoveLevel deletes an empty price level from the tree.
+func (s *Side) RemoveLevel(price decimal.Decimal) {
+	s.Levels.Delete(&PriceLevel{PriceLevel: price})
+}
+
+// GetLevel retrieves a level by exact price (O(log n)).
+func (s *Side) GetLevel(price decimal.Decimal) (*PriceLevel, bool) {
+	return s.Levels.Get(&PriceLevel{PriceLevel: price})
+}
+
+func (s *Side) RemoveEmptyLevel() {
+	s.Levels.Ascend(func(p *PriceLevel) bool {
+		if len(p.Orders) == 0 {
+			s.RemoveLevel(p.PriceLevel)
+		}
+		return false
+	})
 }
