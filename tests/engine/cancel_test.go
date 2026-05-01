@@ -67,15 +67,15 @@ func TestCancel_Buy_RemovesOrderFromBids(t *testing.T) {
 		"order_id", resting.ID, "price", resting.Price.String())
 	logBookState(t, ob)
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	logBookState(t, ob)
 
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("expected bid side to be empty after cancel, got %d levels", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("expected bid side to be empty after cancel, got %d levels", ob.Bids.Levels.Len())
 	}
 	if repo.updatedOrderID != "bid-001" {
 		t.Errorf("expected DB update for order bid-001, got %q", repo.updatedOrderID)
@@ -101,15 +101,15 @@ func TestCancel_Sell_RemovesOrderFromAsks(t *testing.T) {
 		"order_id", resting.ID, "price", resting.Price.String())
 	logBookState(t, ob)
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	logBookState(t, ob)
 
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(ob.Asks.Levels) != 0 {
-		t.Errorf("expected ask side to be empty after cancel, got %d levels", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 0 {
+		t.Errorf("expected ask side to be empty after cancel, got %d levels", ob.Asks.Levels.Len())
 	}
 	if repo.updatedOrderID != "ask-001" {
 		t.Errorf("expected DB update for order ask-001, got %q", repo.updatedOrderID)
@@ -134,7 +134,7 @@ func TestCancel_Buy_OrderNotFound(t *testing.T) {
 
 	zap.S().Infow("=== TestCancel_Buy_OrderNotFound: setup ===", "cancel_id", cancel.ID)
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	if err == nil {
 		t.Errorf("expected error for non-existent order, got nil")
@@ -143,8 +143,9 @@ func TestCancel_Buy_OrderNotFound(t *testing.T) {
 		t.Errorf("UpdateOrderStatus must not be called when order is not found")
 	}
 	// Resting order must remain untouched.
-	if len(ob.Bids.Levels) != 1 || len(ob.Bids.Levels[0].Orders) != 1 {
-		t.Errorf("bid side should be untouched, got %d levels", len(ob.Bids.Levels))
+	lvl := firstBidLevel(ob)
+	if ob.Bids.Levels.Len() != 1 || lvl == nil || len(lvl.Orders) != 1 {
+		t.Errorf("bid side should be untouched, got %d levels", ob.Bids.Levels.Len())
 	}
 }
 
@@ -163,7 +164,7 @@ func TestCancel_Buy_WrongPrice(t *testing.T) {
 	zap.S().Infow("=== TestCancel_Buy_WrongPrice: setup ===",
 		"order_price", 50_000, "cancel_price", 49_000)
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	if err == nil {
 		t.Errorf("expected error when price level not found, got nil")
@@ -171,7 +172,8 @@ func TestCancel_Buy_WrongPrice(t *testing.T) {
 	if repo.updatedOrderID != "" {
 		t.Errorf("UpdateOrderStatus must not be called when price level not found")
 	}
-	if len(ob.Bids.Levels) != 1 || len(ob.Bids.Levels[0].Orders) != 1 {
+	lvl := firstBidLevel(ob)
+	if ob.Bids.Levels.Len() != 1 || lvl == nil || len(lvl.Orders) != 1 {
 		t.Errorf("bid side should be untouched")
 	}
 }
@@ -193,7 +195,7 @@ func TestCancel_Buy_MultipleOrdersAtLevel(t *testing.T) {
 		"cancelling", cancel.ID, "remaining", order2.ID)
 	logBookState(t, ob)
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	logBookState(t, ob)
 
@@ -201,14 +203,15 @@ func TestCancel_Buy_MultipleOrdersAtLevel(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	// Level must still exist with exactly one order remaining.
-	if len(ob.Bids.Levels) != 1 {
-		t.Errorf("expected 1 bid level to remain, got %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 1 {
+		t.Errorf("expected 1 bid level to remain, got %d", ob.Bids.Levels.Len())
 	}
-	if len(ob.Bids.Levels[0].Orders) != 1 {
-		t.Errorf("expected 1 order remaining at level, got %d", len(ob.Bids.Levels[0].Orders))
+	lvl := firstBidLevel(ob)
+	if lvl == nil || len(lvl.Orders) != 1 {
+		t.Errorf("expected 1 order remaining at level, got %d", len(lvl.Orders))
 	}
-	if ob.Bids.Levels[0].Orders[0].ID != "bid-002" {
-		t.Errorf("expected bid-002 to remain, got %s", ob.Bids.Levels[0].Orders[0].ID)
+	if lvl.Orders[0].ID != "bid-002" {
+		t.Errorf("expected bid-002 to remain, got %s", lvl.Orders[0].ID)
 	}
 	if repo.updatedOrderID != "bid-001" {
 		t.Errorf("expected DB update for bid-001, got %q", repo.updatedOrderID)
@@ -226,7 +229,7 @@ func TestCancel_EmptyBook_Buy(t *testing.T) {
 
 	zap.S().Infow("=== TestCancel_EmptyBook_Buy: setup === (empty book)")
 
-	_, err := ob.Cancel(context.Background(), repo, *cancel)
+	err := ob.Cancel(context.Background(), repo, *cancel)
 
 	if err == nil {
 		t.Errorf("expected error when cancelling on empty book, got nil")

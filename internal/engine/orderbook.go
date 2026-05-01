@@ -323,7 +323,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 					return false
 				}
 			}
-			return false
+			return true
 		})
 
 		// Publish the accumulated batch (cancel, full fill, or partial-then-exhausted).
@@ -439,7 +439,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 					return false
 				}
 			}
-			return false
+			return true
 		})
 
 		if incomingFullyFilled || cancelled || len(restingOrderEvents) > 0 {

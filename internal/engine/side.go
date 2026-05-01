@@ -39,8 +39,8 @@ func (s *Side) Add(order *Order) {
 	key := &PriceLevel{PriceLevel: order.Price}
 	existing, ok := s.Levels.Get(key)
 	if !ok {
-		newPriceLevel := &PriceLevel{PriceLevel: order.Price, Orders: make([]*Order, 0)}
-		s.Levels.ReplaceOrInsert(newPriceLevel)
+		existing = &PriceLevel{PriceLevel: order.Price, Orders: make([]*Order, 0)}
+		s.Levels.ReplaceOrInsert(existing)
 	}
 	existing.Orders = append(existing.Orders, order)
 }
@@ -57,7 +57,20 @@ func (s *Side) BestPriceLevel() (*PriceLevel, bool) {
 }
 
 func (s *Side) PopFront() {
-
+	var first *PriceLevel
+	s.Levels.Ascend(func(p *PriceLevel) bool {
+		first = p
+		return false
+	})
+	if first == nil {
+		return
+	}
+	if len(first.Orders) > 0 {
+		first.Orders = first.Orders[1:]
+	}
+	if len(first.Orders) == 0 {
+		s.Levels.Delete(first)
+	}
 }
 
 // RemoveLevel deletes an empty price level from the tree.
@@ -71,10 +84,14 @@ func (s *Side) GetLevel(price decimal.Decimal) (*PriceLevel, bool) {
 }
 
 func (s *Side) RemoveEmptyLevel() {
+	var empty []*PriceLevel
 	s.Levels.Ascend(func(p *PriceLevel) bool {
 		if len(p.Orders) == 0 {
-			s.RemoveLevel(p.PriceLevel)
+			empty = append(empty, p)
 		}
-		return false
+		return true
 	})
+	for _, p := range empty {
+		s.Levels.Delete(p)
+	}
 }
