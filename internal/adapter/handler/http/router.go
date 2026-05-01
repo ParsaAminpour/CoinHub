@@ -101,6 +101,10 @@ func SetupRouter(app *internal.Application) error {
 	gin.ForceConsoleColor()
 
 	router := gin.Default()
+	if err := SetupAdminPanel(router, app.Configs); err != nil {
+		zap.S().Error("error occurred in setting up the admin panel\n%s", err.Error())
+		return err
+	}
 	// TODO(security) : add Sentry for crash reporting - in production
 	router.Use(gin.Recovery())           // for handling panics
 	router.Use(gin.Logger())             // write the logs to gin.DefaultWriter
@@ -149,7 +153,7 @@ func SetupRouter(app *internal.Application) error {
 		return err
 	}
 
-	zap.S().Infow("HTTP server is running", "address", "localhost:8082")
+	zap.S().Infof("🚀 HTTP server running at %s:%s [env: %s] %s", app.Configs.App.Host, app.Configs.App.Port, app.Configs.App.Env, "🌐")
 	if err := router.Run(":8083"); err != nil {
 		return err
 	}
@@ -174,6 +178,7 @@ func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	if err := registerOrderRoutes(r, app); err != nil {
 		return err
 	}
+
 	return nil
 }
 
