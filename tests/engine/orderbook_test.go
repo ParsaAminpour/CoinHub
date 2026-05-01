@@ -134,56 +134,78 @@ func newLimitOrder(id, userID, pair string, side engine.OrderSide, price, qty fl
 	return o
 }
 
-// newOrderbook creates an Orderbook for the given pair with a small dust
-// threshold so near-zero remainders are treated as filled.
+// newOrderbook creates an Orderbook for the given pair with initialized BTree
+// sides and a small dust threshold so near-zero remainders are treated as filled.
 func newOrderbook(pair string) *engine.Orderbook {
 	return &engine.Orderbook{
 		Pair: pair,
 		Dust: d(0.0001),
+		Asks: engine.NewSide(32, true),
+		Bids: engine.NewSide(32, false),
 	}
 }
 
-// seedAsks directly populates the ask side of the book with one price level.
-// Asks are ascending — index 0 is the best (lowest) ask.
+// seedAsks inserts a price level with the given orders into the ask side BTree.
 func seedAsks(ob *engine.Orderbook, price float64, orders ...*engine.Order) {
 	level := &engine.PriceLevel{
 		PriceLevel: d(price),
 		Orders:     orders,
 	}
-	ob.Asks.Levels = append([]*engine.PriceLevel{level}, ob.Asks.Levels...)
+	ob.Asks.Levels.ReplaceOrInsert(level)
 }
 
-// seedBids directly populates the bid side with one price level.
-// Bids are descending — index 0 is the best (highest) bid.
+// seedBids inserts a price level with the given orders into the bid side BTree.
 func seedBids(ob *engine.Orderbook, price float64, orders ...*engine.Order) {
 	level := &engine.PriceLevel{
 		PriceLevel: d(price),
 		Orders:     orders,
 	}
-	ob.Bids.Levels = append([]*engine.PriceLevel{level}, ob.Bids.Levels...)
+	ob.Bids.Levels.ReplaceOrInsert(level)
+}
+
+// firstAskLevel returns the best (lowest price) ask level from the BTree, or nil.
+func firstAskLevel(ob *engine.Orderbook) *engine.PriceLevel {
+	var first *engine.PriceLevel
+	ob.Asks.Levels.Ascend(func(p *engine.PriceLevel) bool {
+		first = p
+		return false
+	})
+	return first
+}
+
+// firstBidLevel returns the best (highest price) bid level from the BTree, or nil.
+func firstBidLevel(ob *engine.Orderbook) *engine.PriceLevel {
+	var first *engine.PriceLevel
+	ob.Bids.Levels.Ascend(func(p *engine.PriceLevel) bool {
+		first = p
+		return false
+	})
+	return first
 }
 
 func logBookState(t *testing.T, ob *engine.Orderbook) {
 	t.Helper()
 	zap.S().Infow("[book state]",
 		"pair", ob.Pair,
-		"ask_levels", len(ob.Asks.Levels),
-		"bid_levels", len(ob.Bids.Levels),
+		"ask_levels", ob.Asks.Levels.Len(),
+		"bid_levels", ob.Bids.Levels.Len(),
 	)
-	for i, lvl := range ob.Asks.Levels {
-		zap.S().Infow("[ask level]", "idx", i, "price", lvl.PriceLevel.String(), "order_count", len(lvl.Orders))
+	ob.Asks.Levels.Ascend(func(lvl *engine.PriceLevel) bool {
+		zap.S().Infow("[ask level]", "price", lvl.PriceLevel.String(), "order_count", len(lvl.Orders))
 		for j, o := range lvl.Orders {
-			zap.S().Infow("[ask order]", "level_idx", i, "order_idx", j,
+			zap.S().Infow("[ask order]", "order_idx", j,
 				"id", o.ID, "qty", o.Quantity.String(), "filled", o.Filled.String(), "remaining", o.Remaining().String())
 		}
-	}
-	for i, lvl := range ob.Bids.Levels {
-		zap.S().Infow("[bid level]", "idx", i, "price", lvl.PriceLevel.String(), "order_count", len(lvl.Orders))
+		return true
+	})
+	ob.Bids.Levels.Ascend(func(lvl *engine.PriceLevel) bool {
+		zap.S().Infow("[bid level]", "price", lvl.PriceLevel.String(), "order_count", len(lvl.Orders))
 		for j, o := range lvl.Orders {
-			zap.S().Infow("[bid order]", "level_idx", i, "order_idx", j,
+			zap.S().Infow("[bid order]", "order_idx", j,
 				"id", o.ID, "qty", o.Quantity.String(), "filled", o.Filled.String(), "remaining", o.Remaining().String())
 		}
-	}
+		return true
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,10 +224,10 @@ func TestMatchLimit_Buy_EmptyAsks(t *testing.T) {
 		"incoming_id", incoming.ID,
 		"incoming_price", incoming.Price.String(),
 		"incoming_qty", incoming.Quantity.String(),
-		"ask_levels_before", len(ob.Asks.Levels),
+		"ask_levels_before", ob.Asks.Levels.Len(),
 	)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_EmptyAsks: result ===",
 		"error", err,
@@ -234,10 +256,10 @@ func TestMatchLimit_Sell_EmptyBids(t *testing.T) {
 	zap.S().Infow("=== TestMatchLimit_Sell_EmptyBids: setup ===",
 		"incoming_id", incoming.ID,
 		"incoming_price", incoming.Price.String(),
-		"bid_levels_before", len(ob.Bids.Levels),
+		"bid_levels_before", ob.Bids.Levels.Len(),
 	)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Sell_EmptyBids: result ===", "error", err, "events", pub.count())
 
@@ -268,11 +290,11 @@ func TestMatchLimit_Buy_PriceNoMatch(t *testing.T) {
 		"best_ask_price", 50_200, "incoming_buy_price", 50_100)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_PriceNoMatch: result ===",
 		"error", err, "events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels))
+		"ask_levels_after", ob.Asks.Levels.Len())
 
 	if err != nil {
 		t.Errorf("expected nil error, got %v", err)
@@ -283,8 +305,8 @@ func TestMatchLimit_Buy_PriceNoMatch(t *testing.T) {
 	if pub.tradeCount() != 0 {
 		t.Errorf("expected 0 trade events (no match), got %d", pub.tradeCount())
 	}
-	if len(ob.Asks.Levels) != 1 {
-		t.Errorf("ask side should be untouched, got %d levels", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 1 {
+		t.Errorf("ask side should be untouched, got %d levels", ob.Asks.Levels.Len())
 	}
 }
 
@@ -304,7 +326,7 @@ func TestMatchLimit_Sell_PriceNoMatch(t *testing.T) {
 		"best_bid_price", 49_800, "incoming_sell_price", 49_900)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Sell_PriceNoMatch: result ===",
 		"error", err, "events_published", pub.count())
@@ -342,11 +364,11 @@ func TestMatchLimit_Buy_SelfTrade(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_SelfTrade: result ===",
 		"error", err, "events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels),
+		"ask_levels_after", ob.Asks.Levels.Len(),
 	)
 
 	if err != nil {
@@ -359,8 +381,9 @@ func TestMatchLimit_Buy_SelfTrade(t *testing.T) {
 	if pub.tradeCount() != 0 {
 		t.Errorf("self-trade: expected 0 trade events, got %d", pub.tradeCount())
 	}
-	if len(ob.Asks.Levels) != 1 || len(ob.Asks.Levels[0].Orders) != 1 {
-		t.Errorf("self-trade: ask side must be untouched, got %d levels", len(ob.Asks.Levels))
+	lvl := firstAskLevel(ob)
+	if ob.Asks.Levels.Len() != 1 || lvl == nil || len(lvl.Orders) != 1 {
+		t.Errorf("self-trade: ask side must be untouched, got %d levels", ob.Asks.Levels.Len())
 	}
 }
 
@@ -369,7 +392,7 @@ func TestMatchLimit_Buy_SelfTrade(t *testing.T) {
 //
 // Expected after match:
 //   - Both orders are fully filled.
-//   - The resting ask is removed from the book (Asks.Levels empty).
+//   - The resting ask is removed from the book (Asks empty).
 //   - The incoming order is NOT added to the bid side.
 //   - 2 events published (one per order), both with EventOrderFilled.
 func TestMatchLimit_Buy_FullFill(t *testing.T) {
@@ -392,13 +415,13 @@ func TestMatchLimit_Buy_FullFill(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_FullFill: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels),
-		"bid_levels_after", len(ob.Bids.Levels),
+		"ask_levels_after", ob.Asks.Levels.Len(),
+		"bid_levels_after", ob.Bids.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -410,12 +433,12 @@ func TestMatchLimit_Buy_FullFill(t *testing.T) {
 		t.Errorf("expected 2 events (one per order), got %d", pub.count())
 	}
 	// Resting ask must be removed from the book.
-	if len(ob.Asks.Levels) != 0 {
-		t.Errorf("resting ask should be removed after full fill, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 0 {
+		t.Errorf("resting ask should be removed after full fill, ask levels = %d", ob.Asks.Levels.Len())
 	}
 	// Incoming buy is fully filled → must NOT be added to the bid side.
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("incoming order should NOT be added to bids after full fill, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("incoming order should NOT be added to bids after full fill, bid levels = %d", ob.Bids.Levels.Len())
 	}
 	// Exactly 1 trade event emitted for the single fill.
 	if pub.tradeCount() != 1 {
@@ -470,13 +493,13 @@ func TestMatchLimit_Buy_PartialFill_IncomingLarger(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_PartialFill_IncomingLarger: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels),
-		"bid_levels_after", len(ob.Bids.Levels),
+		"ask_levels_after", ob.Asks.Levels.Len(),
+		"bid_levels_after", ob.Bids.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -487,12 +510,12 @@ func TestMatchLimit_Buy_PartialFill_IncomingLarger(t *testing.T) {
 		t.Errorf("expected 2 events, got %d", pub.count())
 	}
 	// Resting ask (qty=1) is fully consumed → ask side must be empty.
-	if len(ob.Asks.Levels) != 0 {
-		t.Errorf("resting ask should be removed, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 0 {
+		t.Errorf("resting ask should be removed, ask levels = %d", ob.Asks.Levels.Len())
 	}
 	// Incoming still has 1 BTC remaining → must be resting on the bid side.
-	if len(ob.Bids.Levels) != 1 {
-		t.Errorf("incoming partial order should be added to bids, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 1 {
+		t.Errorf("incoming partial order should be added to bids, bid levels = %d", ob.Bids.Levels.Len())
 	}
 	// 1 trade event: resting was fully filled, incoming was not.
 	if pub.tradeCount() != 1 {
@@ -537,13 +560,13 @@ func TestMatchLimit_Buy_PartialFill_IncomingSmaller(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_PartialFill_IncomingSmaller: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels),
-		"bid_levels_after", len(ob.Bids.Levels),
+		"ask_levels_after", ob.Asks.Levels.Len(),
+		"bid_levels_after", ob.Bids.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -554,17 +577,21 @@ func TestMatchLimit_Buy_PartialFill_IncomingSmaller(t *testing.T) {
 		t.Errorf("expected 2 events, got %d", pub.count())
 	}
 	// Resting ask is only partially consumed → must still be in the book.
-	if len(ob.Asks.Levels) != 1 {
-		t.Errorf("resting ask should remain in book after partial fill, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 1 {
+		t.Errorf("resting ask should remain in book after partial fill, ask levels = %d", ob.Asks.Levels.Len())
 	}
-	restingAfter := ob.Asks.Levels[0].Orders[0]
+	lvl := firstAskLevel(ob)
+	if lvl == nil || len(lvl.Orders) == 0 {
+		t.Fatal("expected a resting order in the ask level")
+	}
+	restingAfter := lvl.Orders[0]
 	expectedRemaining := d(0.5)
 	if !restingAfter.Remaining().Equal(expectedRemaining) {
 		t.Errorf("resting ask remaining should be 0.5, got %s", restingAfter.Remaining().String())
 	}
 	// Incoming is fully filled → must NOT be added to bids.
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("fully-filled incoming should not be added to bids, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("fully-filled incoming should not be added to bids, bid levels = %d", ob.Bids.Levels.Len())
 	}
 	// 1 trade event: incoming fully consumed, resting partially consumed.
 	if pub.tradeCount() != 1 {
@@ -614,13 +641,13 @@ func TestMatchLimit_Sell_FullFill(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Sell_FullFill: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"bid_levels_after", len(ob.Bids.Levels),
-		"ask_levels_after", len(ob.Asks.Levels),
+		"bid_levels_after", ob.Bids.Levels.Len(),
+		"ask_levels_after", ob.Asks.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -630,11 +657,11 @@ func TestMatchLimit_Sell_FullFill(t *testing.T) {
 	if pub.count() != 2 {
 		t.Errorf("expected 2 events, got %d", pub.count())
 	}
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("resting bid should be removed after full fill, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("resting bid should be removed after full fill, bid levels = %d", ob.Bids.Levels.Len())
 	}
-	if len(ob.Asks.Levels) != 0 {
-		t.Errorf("fully-filled incoming sell should not be added to asks, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 0 {
+		t.Errorf("fully-filled incoming sell should not be added to asks, ask levels = %d", ob.Asks.Levels.Len())
 	}
 	// 1 trade event: both sides fully filled.
 	if pub.tradeCount() != 1 {
@@ -679,13 +706,13 @@ func TestMatchLimit_Sell_PartialFill_IncomingLarger(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Sell_PartialFill_IncomingLarger: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"bid_levels_after", len(ob.Bids.Levels),
-		"ask_levels_after", len(ob.Asks.Levels),
+		"bid_levels_after", ob.Bids.Levels.Len(),
+		"ask_levels_after", ob.Asks.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -695,11 +722,11 @@ func TestMatchLimit_Sell_PartialFill_IncomingLarger(t *testing.T) {
 	if pub.count() != 2 {
 		t.Errorf("expected 2 events, got %d", pub.count())
 	}
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("resting bid should be removed, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("resting bid should be removed, bid levels = %d", ob.Bids.Levels.Len())
 	}
-	if len(ob.Asks.Levels) != 1 {
-		t.Errorf("partially-filled incoming sell should be on ask side, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 1 {
+		t.Errorf("partially-filled incoming sell should be on ask side, ask levels = %d", ob.Asks.Levels.Len())
 	}
 	// 1 trade event: resting bid fully consumed, incoming sell has remainder.
 	if pub.tradeCount() != 1 {
@@ -736,11 +763,11 @@ func TestMatchLimit_Sell_SelfTrade(t *testing.T) {
 	zap.S().Infow("=== TestMatchLimit_Sell_SelfTrade: setup ===", "user_id", sameUser)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Sell_SelfTrade: result ===",
 		"error", err, "events_published", pub.count(),
-		"bid_levels_after", len(ob.Bids.Levels),
+		"bid_levels_after", ob.Bids.Levels.Len(),
 	)
 
 	if err != nil {
@@ -752,7 +779,8 @@ func TestMatchLimit_Sell_SelfTrade(t *testing.T) {
 	if pub.tradeCount() != 0 {
 		t.Errorf("self-trade: expected 0 trade events, got %d", pub.tradeCount())
 	}
-	if len(ob.Bids.Levels) != 1 || len(ob.Bids.Levels[0].Orders) != 1 {
+	lvl := firstBidLevel(ob)
+	if ob.Bids.Levels.Len() != 1 || lvl == nil || len(lvl.Orders) != 1 {
 		t.Errorf("self-trade: bid side should be untouched")
 	}
 }
@@ -763,7 +791,7 @@ func TestMatchLimit_Sell_SelfTrade(t *testing.T) {
 // Expected:
 //   - Both resting asks are fully filled and removed.
 //   - Incoming order is fully filled.
-//   - 4 events published (2 per matched pair — but depends on implementation).
+//   - 4 events published (2 per matched pair).
 func TestMatchLimit_Buy_MultipleRestingOrders(t *testing.T) {
 	initLogger(t)
 	pub := &capturePublisher{}
@@ -781,13 +809,13 @@ func TestMatchLimit_Buy_MultipleRestingOrders(t *testing.T) {
 	)
 	logBookState(t, ob)
 
-	_, err := ob.MatchLimit(pub, *incoming)
+	err := ob.MatchLimit(pub, *incoming)
 
 	zap.S().Infow("=== TestMatchLimit_Buy_MultipleRestingOrders: result ===",
 		"error", err,
 		"events_published", pub.count(),
-		"ask_levels_after", len(ob.Asks.Levels),
-		"bid_levels_after", len(ob.Bids.Levels),
+		"ask_levels_after", ob.Asks.Levels.Len(),
+		"bid_levels_after", ob.Bids.Levels.Len(),
 	)
 	logBookState(t, ob)
 
@@ -799,11 +827,11 @@ func TestMatchLimit_Buy_MultipleRestingOrders(t *testing.T) {
 	if pub.count() != 4 {
 		t.Errorf("expected 4 events (2 per match iteration), got %d", pub.count())
 	}
-	if len(ob.Asks.Levels) != 0 {
-		t.Errorf("both resting asks should be removed, ask levels = %d", len(ob.Asks.Levels))
+	if ob.Asks.Levels.Len() != 0 {
+		t.Errorf("both resting asks should be removed, ask levels = %d", ob.Asks.Levels.Len())
 	}
-	if len(ob.Bids.Levels) != 0 {
-		t.Errorf("fully filled incoming should not be on bids, bid levels = %d", len(ob.Bids.Levels))
+	if ob.Bids.Levels.Len() != 0 {
+		t.Errorf("fully filled incoming should not be on bids, bid levels = %d", ob.Bids.Levels.Len())
 	}
 	// 2 trade events — one per resting order matched.
 	if pub.tradeCount() != 2 {

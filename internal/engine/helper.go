@@ -8,7 +8,7 @@ import (
 func (a *SupportedPairLight) fixSupportedPairLight() error {
 	if !strings.Contains(*a.Symbol, "-") {
 		if !strings.Contains(*a.Symbol, "/") || len(strings.Split(*a.Symbol, "/")) != 2 {
-			return fmt.Errorf("the asset symbol format is incorrect %s", *a.Symbol)
+			return fmt.Errorf("%w: %s", ErrInvalidSymbolFormat, *a.Symbol)
 		}
 		formattedSymbol := fmt.Sprintf("%s-%s", strings.Split(*a.Symbol, "/")[0], strings.Split(*a.Symbol, "/")[1])
 		a.Symbol = &formattedSymbol

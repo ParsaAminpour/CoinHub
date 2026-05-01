@@ -6,105 +6,11 @@ import (
 	"coinhub/internal/domain/repositories"
 	"coinhub/internal/infrastructure/metrics"
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
-
-var (
-	ErrOrderbookEmpty = errors.New("orderbook is empty")
-	ErrOrderNotValid  = errors.New("order is not valid")
-)
-
-type PriceLevel struct {
-	PriceLevel decimal.Decimal
-	Orders     []*Order // TODO(feature) : using B-Tree instead of slices
-}
-
-func NewPriceLevel(orders []*Order, price decimal.Decimal) *PriceLevel {
-	return &PriceLevel{
-		PriceLevel: price,
-		Orders:     orders,
-	}
-}
-
-func (pl *PriceLevel) BestOrderInPriceLevel() (*Order, error) {
-	return pl.Orders[len(pl.Orders)], nil
-}
-
-func (pl *PriceLevel) RemoveOrderInPriceLevelBasedOnOrderID(orderID string) error {
-	for i, order := range pl.Orders {
-		if order.ID == orderID {
-			pl.Orders = append(pl.Orders[:i], pl.Orders[i+1:]...)
-			return nil
-		}
-	}
-	return errors.New("order not found in price level")
-}
-
-type Side struct {
-	// The last order of the slice has the lowest price level
-	Levels []*PriceLevel // could be bids or asks
-}
-
-func (s *Side) Add(order Order, price decimal.Decimal) error {
-	// If an existing level matches the price, append the order there (FIFO within level).
-	for _, lvl := range s.Levels {
-		if lvl.PriceLevel.Equal(price) {
-			lvl.Orders = append(lvl.Orders, &order)
-			return nil
-		}
-	}
-
-	// New price level — insert at the correct sorted position.
-	// Bids: descending (highest price first).
-	// Asks: ascending (lowest price first).
-	newLevel := NewPriceLevel([]*Order{&order}, price)
-	inserted := false
-	newLevels := make([]*PriceLevel, 0, len(s.Levels)+1)
-	for _, lvl := range s.Levels {
-		if !inserted {
-			isBefore := (order.Side == SideBuy && price.GreaterThan(lvl.PriceLevel)) ||
-				(order.Side == SideSell && price.LessThan(lvl.PriceLevel))
-			if isBefore {
-				newLevels = append(newLevels, newLevel)
-				inserted = true
-			}
-		}
-		newLevels = append(newLevels, lvl)
-	}
-	if !inserted {
-		newLevels = append(newLevels, newLevel)
-	}
-	s.Levels = newLevels
-	return nil
-}
-
-// the best price level for the bids is the first index, meaning the buyer wants to buy at highest price level.
-// the best price level for the asks is the first index, meaning the seller wants to sell at lowest price level.
-func (s *Side) BestPriceLevel() *PriceLevel {
-	if len(s.Levels) == 0 {
-		return nil
-	}
-	return s.Levels[0]
-}
-
-func (s *Side) PopFront() {
-	if len(s.Levels) == 0 {
-		return
-	}
-	best := s.Levels[0]
-	best.Orders = best.Orders[1:]
-	if len(best.Orders) == 0 {
-		s.Levels = s.Levels[1:]
-	}
-}
-
-func (s *PriceLevel) RemoveFilledOrderInPriceLevel(side OrderSide, idx int) {
-	s.Orders = append(s.Orders[:idx], s.Orders[idx+1:]...)
-}
 
 // Asks → lowest price at index 0 (best ask = cheapest seller)
 // Bids → highest price at index 0 (best bid = most generous buyer)
@@ -132,10 +38,10 @@ type Orderbook struct {
 // Returns:
 //   - A receive-only channel of Trade objects (matched trades if any).
 //   - An error if no match is possible or an internal error occurs.
-func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrder Order) (<-chan Trade, error) {
+func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrder Order) error {
 	if incomingOrder.Side == SideBuy {
-		if len(ob.Asks.Levels) == 0 {
-			return nil, ErrOrderbookEmpty
+		if ob.Asks.Levels.Len() == 0 {
+			return ErrOrderbookEmpty
 		}
 		// NOTE : the only thing that is going to change is the filled, remainingQty, status and the eventType sections
 		rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
@@ -144,7 +50,10 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 		)
 
 		// the buyer doesn't want to go upper than incomingOrder.Price, and the best seller doesn't want to go lower than its price
-		bestPriceLevel := ob.Asks.BestPriceLevel()
+		bestPriceLevel, exist := ob.Asks.BestPriceLevel()
+		if !exist {
+			return ErrNoBestOrderInOrderbook
+		}
 		if bestPriceLevel.PriceLevel.LessThanOrEqual(incomingOrder.Price) {
 			// the incoming order matched and the settle accounts are going to start...
 			incomingFullyFilled := false
@@ -214,22 +123,23 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 			}
 			// Rest the remaining portion of the incoming order on the bid side if not fully filled.
 			if !incomingFullyFilled && incomingOrder.Status == StatusPartial {
-				if err := ob.Bids.Add(incomingOrder, incomingOrder.Price); err != nil {
-					zap.S().Errorw("Failed to add incoming order to bids", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
-				}
+				ob.Bids.Add(&incomingOrder)
 			}
 		}
 
 	} else {
-		if len(ob.Bids.Levels) == 0 {
-			return nil, ErrOrderbookEmpty
+		if ob.Bids.Levels.Len() == 0 {
+			return ErrOrderbookEmpty
 		}
 		rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
 			incomingOrder.ID, incomingOrder.UserID, incomingOrder.Pair, kafka.OrderType(incomingOrder.Type), kafka.StatusPartial, kafka.EventOrderPartial,
 			kafka.OrderSide(incomingOrder.Side), incomingOrder.Price, incomingOrder.Quantity, incomingOrder.Filled, incomingOrder.Remaining(),
 		)
 
-		bestPriceLevel := ob.Bids.BestPriceLevel()
+		bestPriceLevel, exist := ob.Bids.BestPriceLevel()
+		if !exist {
+			return ErrNoBestOrderInOrderbook
+		}
 		if bestPriceLevel.PriceLevel.GreaterThanOrEqual(incomingOrder.Price) {
 			incomingFullyFilled := false
 			for _, bestOrder := range bestPriceLevel.Orders {
@@ -294,9 +204,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 			}
 			// Rest the remaining portion of the incoming order on the ask side if not fully filled.
 			if !incomingFullyFilled && incomingOrder.Status == StatusPartial {
-				if err := ob.Asks.Add(incomingOrder, incomingOrder.Price); err != nil {
-					zap.S().Errorw("Failed to add incoming order to asks", "order_id", incomingOrder.ID, "price", incomingOrder.Price)
-				}
+				ob.Asks.Add(&incomingOrder)
 			}
 		} else {
 			// No match found for the incoming order
@@ -307,7 +215,7 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 		}
 	}
 
-	return nil, nil
+	return nil
 }
 
 // the price of incomingOrder is going to be the market price, not choosen by the ow
@@ -318,10 +226,10 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 // and marks their status accordingly (partial, filled, cancelled).
 // The function also emits relevant order events through Kafka, using the provided kafkaClient.
 // Returns a channel of Trade objects (or nil if none), and an error if the market cannot be matched.
-func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrder Order) (<-chan Trade, error) {
+func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrder Order) error {
 	if incomingOrder.Side == SideBuy {
-		if len(ob.Asks.Levels) == 0 {
-			return nil, ErrOrderbookEmpty
+		if ob.Asks.Levels.Len() == 0 {
+			return ErrOrderbookEmpty
 		}
 
 		rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
@@ -335,13 +243,12 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 		incomingFullyFilled := false
 		cancelled := false
 
-	buyLevelLoop:
-		for _, priceLevel := range ob.Asks.Levels {
+		ob.Asks.Levels.Ascend(func(priceLevel *PriceLevel) bool {
 			if priceLevel.PriceLevel.GreaterThan(incomingOrder.Price) {
 				// All remaining levels are too expensive — cancel the unfilled remainder.
 				rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderCanceled, kafka.StatusCancelled)
 				cancelled = true
-				break
+				return false
 			}
 
 			// Index-based inner loop so we can safely remove filled orders mid-iteration.
@@ -349,7 +256,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				restingOrder := priceLevel.Orders[idx]
 				if restingOrder.ID == incomingOrder.ID {
 					idx++
-					continue
+					return true
 				}
 
 				makerRemainingBefore := restingOrder.Remaining()
@@ -357,7 +264,7 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				fillQty := decimal.Min(makerRemainingBefore, takerRemainingBefore)
 				if fillQty.IsZero() {
 					idx++
-					continue
+					return true
 				}
 
 				rawOrderEventForRestingOrder := kafka.NewOrderEvent(
@@ -413,10 +320,11 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
 
 				if incomingFullyFilled {
-					break buyLevelLoop
+					return false
 				}
 			}
-		}
+			return true
+		})
 
 		// Publish the accumulated batch (cancel, full fill, or partial-then-exhausted).
 		if incomingFullyFilled || cancelled || len(restingOrderEvents) > 0 {
@@ -436,11 +344,11 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 		}
 
 		// Remove price levels that were fully drained.
-		ob.Asks.Levels = removeEmptyLevels(ob.Asks.Levels)
+		ob.Asks.RemoveEmptyLevel()
 
 	} else {
-		if len(ob.Bids.Levels) == 0 {
-			return nil, ErrOrderbookEmpty
+		if ob.Bids.Levels.Len() == 0 {
+			return ErrOrderbookEmpty
 		}
 
 		rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
@@ -453,20 +361,19 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 		incomingFullyFilled := false
 		cancelled := false
 
-	sellLevelLoop:
-		for _, priceLevel := range ob.Bids.Levels {
+		ob.Bids.Levels.Ascend(func(priceLevel *PriceLevel) bool {
 			if priceLevel.PriceLevel.LessThan(incomingOrder.Price) {
 				// All remaining bid levels are below the seller's minimum — cancel.
 				rawOrderEventForIncomingOrder.ChangeStatusEvent(kafka.EventOrderCanceled, kafka.StatusCancelled)
 				cancelled = true
-				break
+				return false
 			}
 
 			for idx := 0; idx < len(priceLevel.Orders); {
 				restingOrder := priceLevel.Orders[idx]
 				if restingOrder.UserID == incomingOrder.UserID {
 					idx++
-					continue // prevent self-order and money-washing
+					return true // prevent self-order and money-washing
 				}
 
 				makerRemainingBefore := restingOrder.Remaining()
@@ -529,10 +436,11 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 				incomingOrder.Filled = incomingOrder.Filled.Add(fillQty)
 
 				if incomingFullyFilled {
-					break sellLevelLoop
+					return false
 				}
 			}
-		}
+			return true
+		})
 
 		if incomingFullyFilled || cancelled || len(restingOrderEvents) > 0 {
 			allEvents := append(restingOrderEvents, rawOrderEventForIncomingOrder)
@@ -550,47 +458,49 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 			}
 		}
 
-		ob.Bids.Levels = removeEmptyLevels(ob.Bids.Levels)
+		ob.Bids.RemoveEmptyLevel()
 	}
 
-	return nil, nil // return trade chan if there was any match.
+	return nil
 }
 
-func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.OrderRepository, incomingOrder Order) (<-chan Trade, error) {
+func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.OrderRepository, incomingOrder Order) error {
 	zap.S().Infow("cancel order trigerred and consumed", "order", incomingOrder)
 	var captured bool
 	if incomingOrder.Side == SideBuy {
-		for _, pl := range ob.Bids.Levels {
-			if pl.PriceLevel.Equal(incomingOrder.Price) {
-				if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
-					zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
-					return nil, err
-				}
-				captured = true
-				break
+		pl, exist := ob.Bids.GetLevel(incomingOrder.Price)
+		if exist {
+			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
+				zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
+				return err
 			}
+			captured = true
+		} else {
+			captured = false
 		}
-		ob.Bids.Levels = removeEmptyLevels(ob.Bids.Levels)
+		ob.Bids.RemoveEmptyLevel()
+
 	} else {
-		for _, pl := range ob.Asks.Levels {
-			if pl.PriceLevel.Equal(incomingOrder.Price) {
-				if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
-					zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
-					return nil, err
-				}
-				captured = true
-				break
+		pl, exist := ob.Asks.GetLevel(incomingOrder.Price)
+		if exist {
+			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
+				zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
+				return err
 			}
+			captured = true
+		} else {
+			captured = false
 		}
-		ob.Asks.Levels = removeEmptyLevels(ob.Asks.Levels)
+		ob.Asks.RemoveEmptyLevel()
 	}
-	// if it was not found in the book, we have a CRUCIAL bug: deleting a record that doesn't exist or was already removed.
+
 	if !captured {
-		return nil, errors.New("order not found in orderbook")
+		// TODO : Implement a Critical Resolver to manage this situation, add this to the asynq
+		return ErrOrderNotFoundInOrderbook
 	}
 	if err := orderRepository.UpdateOrderStatus(ctx, incomingOrder.ID, entities.StatusCancelled, incomingOrder.Filled); err != nil {
-		return nil, err
+		return err
 	}
 	metrics.OrdersCancelledTotal.WithLabelValues(incomingOrder.Pair).Inc()
-	return nil, nil
+	return nil
 }

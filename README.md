@@ -71,21 +71,48 @@ Background jobs (email codes, pending transaction tracking) run through Asynq (R
 
 ## Architecture
 
-```
-┌─────────────┐    Kafka     ┌───────────────────┐
-│  HTTP API   │ ──────────▶  │  Matching Engine  │
-│  (Gin)      │              │ (per-pair gorout.)│
-└─────────────┘              └───────────────────┘
-       │                              │
-       │                         Kafka events
-       │                              │
-       ▼                     ┌────────┴────────┐
-   PostgreSQL            Projection       Notification
-     (GORM)               Consumer          Consumer
-                         (writes DB)     (WebSocket push)
+```mermaid
+flowchart TB
+    Client(["Client"])
+
+    subgraph App ["App Processes"]
+        API["API Server\nGin · :8083"]
+        Engine["Matching Engine\n1 goroutine per pair"]
+        Proj["Projection Consumer\nwrites state to DB"]
+        Notif["Notification Consumer\nWebSocket push"]
+        Worker["Background Worker\nAsynq — email, tx tracking"]
+        Watcher["Chain Watcher\nlistens for on-chain deposits"]
+    end
+
+    subgraph Infra ["Infrastructure"]
+        Kafka[("Kafka\nKRaft · no ZooKeeper")]
+        PG[("PostgreSQL 16")]
+        Redis[("Redis 7\ncache · job queue")]
+    end
+
+    EVM(["Base · EVM RPC"])
+
+    Client -- "REST" --> API
+    API -. "202 Accepted" .-> Client
+    Notif -- "WebSocket" --> Client
+
+    API -- "ORDER_SUBMITTED" --> Kafka
+    Kafka -- "consume" --> Engine
+    Engine -- "ORDER_* · TRADE_EXECUTED" --> Kafka
+    Kafka -- "consume" --> Proj
+    Kafka -- "consume" --> Notif
+
+    Proj --> PG
+    API --> PG
+    API --> Redis
+    Worker --> Redis
+
+    Watcher -- "subscribe Transfer logs" --> EVM
+    API -- "sign & broadcast tx" --> EVM
+    Watcher -- "credit deposit" --> PG
 ```
 
-Each process (`api`, `engine`, `worker`, `order-projection-consumer`, `notification-consumer`, `watcher`) runs independently. Kafka is the shared state between them.
+Each process (`api`, `engine`, `worker`, `order-projection-consumer`, `notification-consumer`, `watcher`) runs independently. Kafka is the shared backbone — the engine never touches the database directly, and all state changes flow through events.
 
 ---
 
@@ -235,6 +262,7 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 ### Features
 
 - [ ] Asset creation endpoint — admin flow to add new EVM assets without a manual DB insert (`internal/adapter/handler/http/asset.go`)
+- [ ] Asset info endpoints — public routes to query a single asset and list all assets with their network availability, trading pairs, and status (`internal/adapter/handler/http/asset.go`)
 - [ ] Multi-network config — currently hardcoded to support two networks simultaneously (`internal/infrastructure/configs/configs.go`)
 - [ ] Graceful shutdown — drain Kafka consumers and close DB/Redis/WebSocket connections cleanly on SIGTERM (`internal/application.go`)
 - [ ] `expired` order status — define the conditions under which an order transitions to expired vs cancelled (`internal/adapter/messaging/kafka/event.go`)
