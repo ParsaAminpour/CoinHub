@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"coinhub/internal/domain/entities"
 	"reflect"
 	"strings"
 	"time"
@@ -85,6 +86,8 @@ func ValidatePlaceOrderRequest(sl validator.StructLevel) {
 		return
 	}
 
+	maxExpireAt := time.Now().UTC().Add(time.Hour * 24 * entities.MaxRestingDays)
+
 	switch req.OrderType {
 	case Limit, PostOnly:
 		if strings.TrimSpace(req.Price) == "" {
@@ -132,6 +135,10 @@ func ValidatePlaceOrderRequest(sl validator.StructLevel) {
 		}
 	}
 	if req.ExpireAt != nil {
+		// Even for valid order types, we never allow a resting order to exceed system max.
+		if req.ExpireAt.UTC().After(maxExpireAt) {
+			sl.ReportError(req.ExpireAt, "expire_at", "ExpireAt", "expire_at_too_far_in_future", "")
+		}
 		switch req.OrderType {
 		case Limit, PostOnly, StopLimit:
 			// optional: max resting lifetime or good-till time

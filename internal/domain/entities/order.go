@@ -38,6 +38,7 @@ const (
 // DefaultRestingOrderLifetime is the max time a resting limit order may stay in the order book
 // when the client does not send an explicit expire_at.
 const DefaultRestingOrderLifetime = 24 * time.Hour
+const MaxRestingDays = 30 // the maximum lifetime for an order to resting is 30days
 
 // RestingOrderExpiresAt returns the absolute expiry for a resting order: optional user time
 // or placement time plus DefaultRestingOrderLifetime.
