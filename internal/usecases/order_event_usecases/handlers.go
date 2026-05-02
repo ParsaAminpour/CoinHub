@@ -84,6 +84,17 @@ func (h *ProjectionHandler) HandleTradeExecutedEvent(ctx context.Context, event 
 	return nil
 }
 
+func (h *ProjectionHandler) HandleOrderExpiredEvent(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
+	if err := h.MarkEvent(ctx, event); err != nil {
+		return err
+	}
+	if err := h.OrderRepository.UpdateOrderStatus(ctx, event.ID, entities.OrderStatus(event.Status), event.Filled); err != nil {
+		return err
+	}
+	zap.S().Infow("order expired", "consumer_name", h.ConsumerName, "event_id", event.EventID, "order_id", event.ID, "pair", event.Pair, "partition", record.Partition, "offset", record.Offset)
+	return nil
+}
+
 // ====== Order Notification Event Use Cases Handlers ======
 type NotificationHandler struct {
 	Deduper      EventDeduper

@@ -39,6 +39,8 @@ type Orderbook struct {
 //   - A receive-only channel of Trade objects (matched trades if any).
 //   - An error if no match is possible or an internal error occurs.
 func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrder Order) error {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
 	if incomingOrder.Side == SideBuy {
 		if ob.Asks.Levels.Len() == 0 {
 			return ErrOrderbookEmpty
@@ -235,6 +237,8 @@ func (ob *Orderbook) MatchLimit(eventProducer kafka.EventPublisher, incomingOrde
 // The function also emits relevant order events through Kafka, using the provided kafkaClient.
 // Returns a channel of Trade objects (or nil if none), and an error if the market cannot be matched.
 func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrder Order) error {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
 	if incomingOrder.Side == SideBuy {
 		if ob.Asks.Levels.Len() == 0 {
 			return ErrOrderbookEmpty
@@ -476,41 +480,14 @@ func (ob *Orderbook) MatchMarket(eventProducer kafka.EventPublisher, incomingOrd
 
 		ob.Bids.RemoveEmptyLevel()
 	}
-
 	return nil
 }
 
 func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.OrderRepository, incomingOrder Order) error {
 	zap.S().Infow("cancel order trigerred and consumed", "order", incomingOrder)
-	var captured bool
-	if incomingOrder.Side == SideBuy {
-		pl, exist := ob.Bids.GetLevel(incomingOrder.Price)
-		if exist {
-			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
-				zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
-				return err
-			}
-			captured = true
-		} else {
-			captured = false
-		}
-		ob.Bids.RemoveEmptyLevel()
+	removed := ob.RemoveOrderByOrderID(ctx, incomingOrder.Side, incomingOrder.ID, incomingOrder.Price)
 
-	} else {
-		pl, exist := ob.Asks.GetLevel(incomingOrder.Price)
-		if exist {
-			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(incomingOrder.ID); err != nil {
-				zap.S().Errorw("failed to remove order in price level", "error", err, "orderID", incomingOrder.ID, "price", incomingOrder.Price)
-				return err
-			}
-			captured = true
-		} else {
-			captured = false
-		}
-		ob.Asks.RemoveEmptyLevel()
-	}
-
-	if !captured {
+	if !removed {
 		// TODO : Implement a Critical Resolver to manage this situation, add this to the asynq
 		return ErrOrderNotFoundInOrderbook
 	}
@@ -522,31 +499,41 @@ func (ob *Orderbook) Cancel(ctx context.Context, orderRepository repositories.Or
 }
 
 func (ob *Orderbook) RemoveOrderByOrderID(ctx context.Context, side OrderSide, orderID string, orderPrice decimal.Decimal) bool {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	var removed bool
 	if side == SideBuy {
 		pl, exist := ob.Bids.GetLevel(orderPrice)
 		if exist {
 			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(orderID); err != nil {
 				zap.S().Errorw("failed to remove order in price level by repaer", "error", err, "orderID", orderID, "price", orderPrice)
-				return false
+				removed = false
 			}
 		} else {
-			return false
+			removed = false
 		}
+		ob.Bids.RemoveEmptyLevel()
+
 	} else {
 		pl, exist := ob.Asks.GetLevel(orderPrice)
 		if exist {
 			if err := pl.RemoveOrderInPriceLevelBasedOnOrderID(orderID); err != nil {
 				zap.S().Errorw("failed to remove order in price level by repaer", "error", err, "orderID", orderID, "price", orderPrice)
-				return false
+				removed = false
 			}
 		} else {
-			return false
+			removed = false
 		}
+		ob.Asks.RemoveEmptyLevel()
+
 	}
-	return false
+	return removed
 }
 
 func (ob *Orderbook) OrderExist(ctx context.Context, side OrderSide, orderID string) bool {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
 	var exist bool
 	if side == SideBuy {
 		ob.Bids.Levels.Ascend(func(p *PriceLevel) bool {

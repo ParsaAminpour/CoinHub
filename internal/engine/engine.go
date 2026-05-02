@@ -193,7 +193,7 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.EngineEventProducer, inc
 
 	// add the order to the synthtic order heap (not orderbook)
 	item := NewExpiryEntity(incomingOrder.ExpiresAt, incomingOrder.Pair, incomingOrder.ID, incomingOrder.Price, incomingOrder.Side, me.Reaper.Len())
-	me.Reaper.Push(item)
+	heap.Push(me.Reaper, item)
 
 	metrics.OrdersSubmittedTotal.WithLabelValues(incomingOrder.Pair, string(incomingOrder.Type), string(incomingOrder.Side)).Inc()
 	return nil
@@ -392,6 +392,7 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		zap.S().Info("orderReaper goroutine started")
 		if err := me.orderReaper(ctx, kafkaProducer); err != nil {
 			zap.S().Errorw("orderReaper error", "error", err)
@@ -409,42 +410,53 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 }
 
 func (me *MatchEngine) orderReaper(ctx context.Context, kafkaProducer *kafka.EngineEventProducer) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		if me.Reaper.Len() == 0 {
-			continue
-		}
-		// get the top item from the garbage
-		item := me.Reaper.Pop().(expiryEntity)
-		// checks the expiration:
-		if item.isExpired() {
-			// 	expired: check the order existenace in the orderbook else STOP
-			if me.Orderbooks[item.pair].OrderExist(ctx, item.side, item.orderID) {
-				removed := me.Orderbooks[item.pair].RemoveOrderByOrderID(ctx, item.side, item.orderID, item.price)
-				if !removed {
-					// TODO : how to handle this?
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// drain all expired entries at the top of the min-heap
+			for me.Reaper.Len() > 0 {
+				top := (*me.Reaper)[0]
+				if !top.isExpired() {
+					break // min-heap: nothing deeper is expired either
 				}
-				// Create new expiry event (emit to Kafka OrderExpired topic)
-				expiryEvent := kafka.NewOrderEvent(
-					item.orderID,
-					"", // userID unknown from expiryEntity, can be filled if tracked elsewhere
-					item.pair,
-					kafka.OrderType(OrderTypeLimit), // Assumed type; adjust if needed
-					kafka.StatusCancelled,           // Status for expired
-					kafka.EventOrderExpired,         // Mark as order expired
-					kafka.OrderSide(item.side),
-					item.price,
-					decimal.Zero,               // Quantity unknown here
-					decimal.Zero,               // Filled unknown here
-					decimal.Zero,               // Remaining unknown here
-					kafka.OrderBehavior("GTC"), // Could not infer from expiryEntity
-					item.expiresAt,
-				)
-				// other operations will handle by the associated consumer for EXPIRATION event
-				if err := kafkaProducer.PublishOrderEvent(expiryEvent); err != nil {
-					zap.S().Errorw("Failed to publish order expiry event", "error", err, "orderID", item.orderID)
+				item := heap.Pop(me.Reaper).(*expiryEntity)
+				// check the order existence in the orderbook
+				if me.Orderbooks[item.pair].OrderExist(ctx, item.side, item.orderID) {
+					removed := me.Orderbooks[item.pair].RemoveOrderByOrderID(ctx, item.side, item.orderID, item.price)
+					if !removed {
+						zap.S().Warnw("reaper: order not found for removal — may have been filled or cancelled",
+							"order_id", item.orderID, "pair", item.pair, "side", item.side, "price", item.price, "expires_at", item.expiresAt,
+						)
+						metrics.ReaperRemovalFailedTotal.WithLabelValues(item.pair).Inc()
+						continue
+					}
+					metrics.OrdersExpiredTotal.WithLabelValues(item.pair).Inc()
+					// Create new expiry event (emit to Kafka OrderExpired topic)
+					expiryEvent := kafka.NewOrderEvent(
+						item.orderID,
+						"", // userID unknown from expiryEntity, can be filled if tracked elsewhere
+						item.pair,
+						kafka.OrderType(OrderTypeLimit), // Assumed type; adjust if needed
+						kafka.StatusExpired,             // Status for expired
+						kafka.EventOrderExpired,         // Mark as order expired
+						kafka.OrderSide(item.side),
+						item.price,
+						decimal.Zero,               // Quantity unknown here
+						decimal.Zero,               // Filled unknown here
+						decimal.Zero,               // Remaining unknown here
+						kafka.OrderBehavior("GTC"), // Could not infer from expiryEntity
+						item.expiresAt,
+					)
+					// other operations will handle by the associated consumer for EXPIRATION event
+					if err := kafkaProducer.PublishOrderEvent(expiryEvent); err != nil {
+						zap.S().Errorw("Failed to publish order expiry event", "error", err, "orderID", item.orderID)
+					}
 				}
 			}
-			// it pop-ed, we don't need do anything
 		}
 	}
 }

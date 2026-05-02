@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"container/heap"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -28,7 +29,7 @@ func NewExpiryEntity(expiresAt time.Time, pair string, orderID string, price dec
 }
 
 func (e expiryEntity) isExpired() bool {
-	return time.Now().After(time.Time{})
+	return e.expiresAt.Before(time.Now())
 }
 
 type BookReaper []*expiryEntity
@@ -48,18 +49,10 @@ func (br BookReaper) Swap(i, j int) {
 
 // Push adds x to the heap; required by container/heap. Call heap.Push(br, item).
 func (br *BookReaper) Push(x interface{}) {
-	item := x.(*expiryEntity)
-	item.index = len(*br)
-	*br = append(*br, item)
+	heap.Push(br, x)
 }
 
 // Pop removes and returns the minimum (root after heap.Fix); required by container/heap.
 func (br *BookReaper) Pop() interface{} {
-	old := *br
-	n := len(old)
-	item := old[n-1]
-	old[n-1] = nil
-	item.index = -1
-	*br = old[0 : n-1]
-	return item
+	return heap.Pop(br)
 }
