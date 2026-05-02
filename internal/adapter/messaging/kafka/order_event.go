@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"coinhub/internal/domain/entities"
 	"fmt"
 	"strings"
 	"time"
@@ -114,6 +115,8 @@ type OrderStatusEvent struct {
 	Pair         string          `json:"pair"` // "BTC-USDT"
 	Type         OrderType       `json:"type"`
 	Side         OrderSide       `json:"side"`
+	Behavior     OrderBehavior   `json:"behavior"`
+	ExpiresAt    time.Time       `json:"expires_at"`
 	Price        decimal.Decimal `json:"price"`
 	Quantity     decimal.Decimal `json:"quantity"`
 	Filled       decimal.Decimal `json:"filled"`
@@ -133,6 +136,8 @@ func validateNewOrderEventInputs(
 	quantity decimal.Decimal,
 	filled decimal.Decimal,
 	remainingQty decimal.Decimal,
+	behavior OrderBehavior,
+	expiresAt time.Time,
 ) error {
 	// validate id
 	if id == "" {
@@ -149,6 +154,15 @@ func validateNewOrderEventInputs(
 	// validate order type
 	if orderType != OrderTypeLimit && orderType != OrderTypeMarket && orderType != OrderTypeCancel {
 		return fmt.Errorf("invalid order type: %s", orderType)
+	}
+	validBehaviors := map[OrderBehavior]struct{}{
+		OrderBehaviorTIF: {}, OrderBehaviorGTC: {}, OrderBehaviorIOC: {}, OrderBehaviorALO: {},
+	}
+	if _, ok := validBehaviors[behavior]; !ok {
+		return fmt.Errorf("invalid order behavior: %s", behavior)
+	}
+	if expiresAt.IsZero() {
+		return fmt.Errorf("expires_at is required")
 	}
 	// validate status
 	validStatuses := map[OrderStatus]struct{}{
@@ -200,12 +214,22 @@ func NewOrderEvent(
 	quantity decimal.Decimal,
 	filled decimal.Decimal,
 	remainingQty decimal.Decimal,
+	behavior OrderBehavior,
+	expiresAt time.Time,
 ) OrderEvent {
+	if behavior == "" {
+		behavior = OrderBehaviorGTC
+	}
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().UTC().Add(entities.DefaultRestingOrderLifetime)
+	}
+
 	if err := validateNewOrderEventInputs(
-		id, userID, pair, orderType, newStatus, eventType, side, price, quantity, filled, remainingQty,
+		id, userID, pair, orderType, newStatus, eventType, side, price, quantity, filled, remainingQty, behavior, expiresAt,
 	); err != nil {
 		fmt.Errorf(fmt.Sprintf("invalid NewOrderEvent input: %v", err))
 	}
+
 	return &OrderStatusEvent{
 		EventHeader: EventHeader{
 			EventID:   uuid.NewString(),
@@ -218,6 +242,8 @@ func NewOrderEvent(
 		Pair:         pair,
 		Type:         orderType,
 		Side:         side,
+		Behavior:     behavior,
+		ExpiresAt:    expiresAt.UTC(),
 		Price:        price,
 		Quantity:     quantity,
 		Filled:       filled,

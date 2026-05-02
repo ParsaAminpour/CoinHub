@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"slices"
+
 	"github.com/google/btree"
 	"github.com/shopspring/decimal"
 )
@@ -43,4 +45,21 @@ func (pl *PriceLevel) RemoveOrderInPriceLevelBasedOnOrderID(orderID string) erro
 		}
 	}
 	return ErrOrderNotFoundInPriceLevel
+}
+
+func (pl *PriceLevel) OrderExistByOrderID(orderID string) bool {
+	return slices.ContainsFunc(pl.Orders, func(o *Order) bool {
+		return o.ID == orderID
+	})
+}
+
+func (pl *PriceLevel) OrderExistByOrderIDAndReturn(orderID string, existing **Order) bool {
+	idx := slices.IndexFunc(pl.Orders, func(o *Order) bool {
+		return o.ID == orderID
+	})
+	if idx >= 0 {
+		*existing = pl.Orders[idx]
+		return true
+	}
+	return false
 }

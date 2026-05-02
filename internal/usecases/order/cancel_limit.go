@@ -23,9 +23,11 @@ func (cou *OrderUsecases) CancelLimitOrder(
 	price decimal.Decimal,
 	quantity decimal.Decimal,
 ) error {
+	orderType, side = normalizeOrder(orderType, side)
+
 	return cou.txManager.WithinTransaction(ctx, func(ctx context.Context, tx repositories.Tx) error {
 		// call the engine to cancel the order -> an event emit
-		incomingCancelOrder := engine.NewOrder(userID, pair, engine.OrderType(orderType), engine.OrderSide(side), price, quantity)
+		incomingCancelOrder := engine.NewOrder(userID, pair, engine.OrderType(orderType), engine.OrderSide(side), price, quantity, nil)
 		if err := matchEngine.SubmitCancelOrder(eventProducer, *incomingCancelOrder); err != nil {
 			zap.S().Errorw("Failed to submit cancel order to engine", "error", err, "userID", userID, "pair", pair, "orderType", orderType, "side", side, "price", price, "quantity", quantity)
 			return err

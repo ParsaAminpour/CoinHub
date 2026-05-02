@@ -24,7 +24,7 @@ import (
 // For a market buy, set price high enough to cover all relevant ask levels.
 // For a market sell, set price low enough to be below all relevant bid levels.
 func newMarketOrder(id, userID, pair string, side engine.OrderSide, price, qty float64) *engine.Order {
-	o := engine.NewOrder(userID, pair, engine.OrderTypeMarket, side, d(price), d(qty))
+	o := engine.NewOrder(userID, pair, engine.OrderTypeMarket, side, d(price), d(qty), nil)
 	o.ID = id
 	return o
 }

@@ -3,9 +3,11 @@ package http
 import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/messaging/kafka"
+	"coinhub/internal/domain/entities"
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -57,6 +59,8 @@ func GetHome(c *gin.Context, app *internal.Application) error {
 		decimal.NewFromFloat(1.5),     // quantity
 		decimal.NewFromFloat(1.5),     // filled (fully filled)
 		decimal.Zero,                  // remaining
+		kafka.OrderBehaviorGTC,
+		time.Now().UTC().Add(entities.DefaultRestingOrderLifetime),
 	).(*kafka.OrderStatusEvent)
 	if err := app.EngineEventProducer.PublishOrderEvent(event); err != nil {
 		zap.S().Errorw("failed to publish order filled event", "error", err)

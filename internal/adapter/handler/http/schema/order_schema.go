@@ -131,8 +131,15 @@ func ValidatePlaceOrderRequest(sl validator.StructLevel) {
 			sl.ReportError(req.ExpireAt, "expire_at", "ExpireAt", "expire_at_required_for_gtd", "")
 		}
 	}
-	if req.TimeInForce != GTD && req.ExpireAt != nil {
-		sl.ReportError(req.ExpireAt, "expire_at", "ExpireAt", "expire_at_only_valid_for_gtd", "")
+	if req.ExpireAt != nil {
+		switch req.OrderType {
+		case Limit, PostOnly, StopLimit:
+			// optional: max resting lifetime or good-till time
+		default:
+			if req.TimeInForce != GTD {
+				sl.ReportError(req.ExpireAt, "expire_at", "ExpireAt", "expire_at_not_allowed_for_order_type", "")
+			}
+		}
 	}
 }
 
@@ -174,6 +181,7 @@ type OrderResponse struct {
 	AvgPrice    string      `json:"avg_price,omitempty"`
 	Status      OrderStatus `json:"status"`
 	CreatedAt   time.Time   `json:"created_at"`
+	ExpiresAt   *time.Time  `json:"expires_at,omitempty"`
 }
 
 // Supporting enums

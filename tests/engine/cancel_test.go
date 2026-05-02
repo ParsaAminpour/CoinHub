@@ -42,7 +42,7 @@ var _ repositories.OrderRepository = (*mockOrderRepository)(nil)
 // ─────────────────────────────────────────────
 
 func newCancelOrder(id, userID, pair string, side engine.OrderSide, price float64) *engine.Order {
-	o := engine.NewOrder(userID, pair, engine.OrderTypeCancel, side, d(price), decimal.Zero)
+	o := engine.NewOrder(userID, pair, engine.OrderTypeCancel, side, d(price), decimal.Zero, nil)
 	o.ID = id
 	return o
 }
