@@ -71,7 +71,7 @@ Default credentials (development): `admin` / `admin`
 
 ### Observability
 
-Prometheus metrics are exposed at `/metrics` and cover: orders submitted/matched/cancelled per pair, trades executed, Kafka events consumed, and HTTP request latency. A Grafana setup with provisioned dashboards is included in `/monitoring`.
+Prometheus metrics are exposed at `/metrics` and cover: orders submitted/matched/cancelled/expired per pair, reaper removal failures, trades executed, Kafka events consumed, and HTTP request latency. A Grafana setup with provisioned dashboards is included in `/monitoring`.
 
 Background jobs (email codes, pending transaction tracking) run through Asynq (Redis-backed), with a monitoring UI at `/monitoring`.
 
@@ -275,7 +275,7 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 - [ ] Asset info endpoints — public routes to query a single asset and list all assets with their network availability, trading pairs, and status (`internal/adapter/handler/http/asset.go`)
 - [ ] Multi-network config — currently hardcoded to support two networks simultaneously (`internal/infrastructure/configs/configs.go`)
 - [ ] Graceful shutdown — drain Kafka consumers and close DB/Redis/WebSocket connections cleanly on SIGTERM (`internal/application.go`)
-- [ ] `expired` order status — define the conditions under which an order transitions to expired vs cancelled (`internal/adapter/messaging/kafka/event.go`)
+- [x] Order expiration — a reaper goroutine (min-heap, 100ms tick) removes GTC orders past their `expires_at`, publishes `ORDER_EXPIRED` to Kafka, and the projection consumer updates the DB status to `expired`
 
 ### Security
 

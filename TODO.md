@@ -12,7 +12,7 @@ Feature backlog and known tasks for CoinHub.
 - [ ] Multi-network support — config currently handles only two networks simultaneously (`internal/infrastructure/configs/configs.go:54`)
 - [x] Use a B-Tree instead of slices for the order price level in the order book for better performance (`internal/engine/orderbook.go:23`)
 - [ ] Graceful shutdown for all connections (DB, Kafka, WebSocket) (`internal/application.go:61`)
-- [ ] Determine and implement the `expired` order status flow (`internal/adapter/messaging/kafka/event.go:29`)
+- [x] Determine and implement the `expired` order status flow — order reaper (min-heap), expiry consumer handler, and Prometheus metrics (`internal/engine/expiry.go`, `internal/engine/engine.go`, `internal/usecases/order_event_usecases/handlers.go`)
 
 ## Security
 
