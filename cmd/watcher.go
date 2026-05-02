@@ -61,6 +61,7 @@ func RunOnchainWatcher(configs *configs.Configuration) *cobra.Command {
 			}
 
 			wg.Wait()
+			app.Shutdown()
 			zap.S().Debug("shutdown complete")
 		},
 	}

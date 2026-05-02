@@ -56,7 +56,6 @@ type ApplicationOptions struct {
 	SkipWebsocket     bool
 }
 
-// TODO : Add connections graceful shutdown
 type Application struct {
 	Configs *configs.Configuration
 
@@ -396,5 +395,29 @@ func (app *Application) Shutdown() {
 	if app.OrderEventConsumer != nil {
 		app.OrderEventConsumer.Close()
 	}
-	zap.S().Info("The application shutted down!")
+	if app.AsynqClient != nil {
+		if err := app.AsynqClient.Close(); err != nil {
+			zap.S().Errorw("error closing asynq client", "error", err)
+		}
+	}
+	if app.ETHClient != nil {
+		app.ETHClient.Close()
+	}
+	if app.ETHWebsocketClient != nil {
+		app.ETHWebsocketClient.Close()
+	}
+	if app.RedisClient != nil {
+		if err := app.RedisClient.Close(); err != nil {
+			zap.S().Errorw("error closing redis client", "error", err)
+		}
+	}
+	if app.MySqlGorm != nil {
+		sqlDB, err := app.MySqlGorm.DB()
+		if err == nil {
+			if err := sqlDB.Close(); err != nil {
+				zap.S().Errorw("error closing database connection", "error", err)
+			}
+		}
+	}
+	zap.S().Info("application shut down")
 }

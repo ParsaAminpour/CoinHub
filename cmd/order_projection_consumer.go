@@ -117,8 +117,10 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 			}()
 
 			if err := runner.Run(ctx); err != nil {
-				zap.S().Fatalw("projection consumer stopped with error", "error", err)
+				zap.S().Errorw("projection consumer stopped with error", "error", err)
 			}
+			app.Shutdown()
+			zap.S().Debug("shutdown complete")
 		},
 	}
 	cmd.Flags().StringVar(&pair, "pair", "BTC.USDT", "trading pair topic suffix")

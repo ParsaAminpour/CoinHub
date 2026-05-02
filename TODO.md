@@ -11,7 +11,7 @@ Feature backlog and known tasks for CoinHub.
 - [ ] Asset info HTTP handlers — public routes to query a single asset and list all assets with their network availability, trading pairs, and status (`internal/adapter/handler/http/asset.go`)
 - [ ] Multi-network support — config currently handles only two networks simultaneously (`internal/infrastructure/configs/configs.go:54`)
 - [x] Use a B-Tree instead of slices for the order price level in the order book for better performance (`internal/engine/orderbook.go:23`)
-- [ ] Graceful shutdown for all connections (DB, Kafka, WebSocket) (`internal/application.go:61`)
+- [x] Graceful shutdown — all processes handle SIGTERM/SIGINT; `app.Shutdown()` closes DB, Redis, ETH clients, Asynq, and Kafka; HTTP server drains in-flight requests with a 10s timeout (`cmd/api.go`, `internal/application.go`)
 - [x] Determine and implement the `expired` order status flow — order reaper (min-heap), expiry consumer handler, and Prometheus metrics (`internal/engine/expiry.go`, `internal/engine/engine.go`, `internal/usecases/order_event_usecases/handlers.go`)
 
 ## Security

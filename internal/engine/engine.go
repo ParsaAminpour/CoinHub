@@ -469,10 +469,6 @@ func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *ka
 	return nil
 }
 
-func (me *MatchEngine) CloseOrderbookGracefuly(ctx context.Context) error {
-	// TODO : graceful shutdown the message queues.
-	return nil
-}
 
 func (me *MatchEngine) Close() {
 	if me.OrderEventProducer != nil {

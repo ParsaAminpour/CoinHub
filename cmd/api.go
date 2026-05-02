@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"coinhub/internal"
-	"coinhub/internal/adapter/handler/http"
+	apphttp "coinhub/internal/adapter/handler/http"
 	"coinhub/internal/infrastructure/configs"
 	"context"
+	"errors"
+	nethttp "net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -21,7 +24,6 @@ func RunApi(configs *configs.Configuration) *cobra.Command {
 		Long:  "Run the API server",
 		Run: func(cmd *cobra.Command, args []string) {
 			zap.S().Info("running API server")
-			// initializing configs, DB, redis, Gin server, repositories, context, Wg
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -32,9 +34,16 @@ func RunApi(configs *configs.Configuration) *cobra.Command {
 				CommandName: cmd.Name(),
 			})
 
-			if err := http.SetupRouter(app); err != nil {
-				zap.S().Error("error occurred in setting up the http router\n%s", err.Error())
+			srv, err := apphttp.SetupRouter(app)
+			if err != nil {
+				zap.S().Fatalw("error setting up router", "error", err)
 			}
+
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
+					zap.S().Fatalw("HTTP server error", "error", err)
+				}
+			}()
 
 			closeSignal := make(chan os.Signal, 1)
 			signal.Notify(closeSignal, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
@@ -48,7 +57,14 @@ func RunApi(configs *configs.Configuration) *cobra.Command {
 				zap.S().Info("terminating by context cancellation")
 			}
 
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				zap.S().Errorw("HTTP server forced to shut down", "error", err)
+			}
+
 			wg.Wait()
+			app.Shutdown()
 			zap.S().Debug("shutdown complete")
 		},
 	}

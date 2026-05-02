@@ -274,7 +274,7 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 
 - [ ] Asset info endpoints — public routes to query a single asset and list all assets with their network availability, trading pairs, and status (`internal/adapter/handler/http/asset.go`)
 - [ ] Multi-network config — currently hardcoded to support two networks simultaneously (`internal/infrastructure/configs/configs.go`)
-- [ ] Graceful shutdown — drain Kafka consumers and close DB/Redis/WebSocket connections cleanly on SIGTERM (`internal/application.go`)
+- [x] Graceful shutdown — all processes handle SIGTERM/SIGINT; HTTP server drains in-flight requests with a 10s timeout; `app.Shutdown()` closes DB pool, Redis, ETH clients, Asynq, and Kafka producer in order (`cmd/api.go`, `internal/application.go`)
 - [x] Order expiration — a reaper goroutine (min-heap, 100ms tick) removes GTC orders past their `expires_at`, publishes `ORDER_EXPIRED` to Kafka, and the projection consumer updates the DB status to `expired`
 
 ### Security

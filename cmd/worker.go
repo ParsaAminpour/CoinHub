@@ -36,10 +36,10 @@ func RunWorker(configs *configs.Configuration) *cobra.Command {
 			worker.RegisterWorkerHandler(mux, app)
 
 			if err := server.Run(mux); err != nil {
-				zap.S().With(zap.Error(err)).Fatal("could not run server")
-				panic("could not run server: " + err.Error())
+				zap.S().Fatalw("could not run worker server", "error", err)
 			}
-			zap.S().Info("worker is running")
+			app.Shutdown()
+			zap.S().Debug("shutdown complete")
 		},
 	}
 	return cmd

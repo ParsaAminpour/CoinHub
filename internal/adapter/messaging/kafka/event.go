@@ -27,7 +27,7 @@ const (
 	StatusPartial   OrderStatus = "partial"
 	StatusFilled    OrderStatus = "filled"
 	StatusCancelled OrderStatus = "cancelled"
-	StatusExpired   OrderStatus = "expired" // TODO : determine the situation that we go into this status.
+	StatusExpired   OrderStatus = "expired"
 
 	OrderBehaviorTIF OrderBehavior = "TIF"
 	OrderBehaviorGTC OrderBehavior = "GTC"

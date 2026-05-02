@@ -96,14 +96,14 @@ func apiWebsocketHandler(_handlerReadLoop apiWebsocketHandlerSignature, userRepo
 	}
 }
 
-func SetupRouter(app *internal.Application) error {
+func SetupRouter(app *internal.Application) (*http.Server, error) {
 	gin.SetMode(gin.ReleaseMode)
 	gin.ForceConsoleColor()
 
 	router := gin.Default()
 	if err := SetupAdminPanel(router, app.Configs); err != nil {
 		zap.S().Error("error occurred in setting up the admin panel\n%s", err.Error())
-		return err
+		return nil, err
 	}
 	// TODO(security) : add Sentry for crash reporting - in production
 	router.Use(gin.Recovery())           // for handling panics
@@ -127,7 +127,7 @@ func SetupRouter(app *internal.Application) error {
 
 	if err := registerValidators(); err != nil {
 		zap.S().Error("error in registering validators\n%s", err.Error())
-		return err
+		return nil, err
 	}
 
 	// Prometheus metrics — scraped by Prometheus server, not for public clients.
@@ -150,14 +150,14 @@ func SetupRouter(app *internal.Application) error {
 	v1 := router.Group("/v1")
 	if err := setupRoutes(v1, app); err != nil {
 		zap.S().Error("error occurred in setting up the http GET routers\n%s", err.Error())
-		return err
+		return nil, err
 	}
 
 	zap.S().Infof("🚀 HTTP server running at %s:%s [env: %s] %s", app.Configs.App.Host, app.Configs.App.Port, app.Configs.App.Env, "🌐")
-	if err := router.Run(":8083"); err != nil {
-		return err
-	}
-	return nil
+	return &http.Server{
+		Addr:    ":8083",
+		Handler: router,
+	}, nil
 }
 
 func setupRoutes(r *gin.RouterGroup, app *internal.Application) error {
