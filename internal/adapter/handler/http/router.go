@@ -236,6 +236,9 @@ func registerAuthRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	authGroup.POST("/login/gmail", apiPostHandler(LoginUserWithGmailHandler, &authHandler))
 	authGroup.POST("/verify/gmail-code", apiPostHandler(VerifyGmailVerificationCode, &authHandler))
 	authGroup.POST("/resend/gmail-code", apiPostHandler(ResendGmailVerificationCodeHandler, &authHandler))
+	if app.Configs.App.Env == "DEVELOPMENT" {
+		authGroup.POST("/mock/login", apiPostHandler(MockLoginHandler, &authHandler))
+	}
 	return nil
 }
 
@@ -261,6 +264,7 @@ func registerTransactionRoutes(r *gin.RouterGroup, app *internal.Application) er
 func registerSystemRoutes(r *gin.RouterGroup, app *internal.Application) error {
 	systemHandler := NewSystemHandler(
 		app.TradingPairRepository,
+		app.AssetRepository,
 		app.KafkaTopicManager,
 	)
 

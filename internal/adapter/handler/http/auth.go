@@ -327,6 +327,55 @@ func LoginUserWithUsernameHandler(c *gin.Context, handlerCtx *HttpAPIHandler) er
 	return nil
 }
 
+// MockLoginHandler — DEVELOPMENT only.
+// Finds or creates a simulation user by username and returns a JWT without password verification.
+// Used by the simulate_users.sh script to obtain tokens without going through email verification.
+func MockLoginHandler(c *gin.Context, handlerCtx *HttpAPIHandler) error {
+	h, ok := (*handlerCtx).(*AuthHandler)
+	if !ok {
+		return errors.New("invalid handler context for MockLoginHandler")
+	}
+	responseHelper := helper.NewResponseHelper()
+
+	username := "simuser"
+	var body struct {
+		Username string `json:"username"`
+	}
+	if err := c.ShouldBindJSON(&body); err == nil && body.Username != "" {
+		username = body.Username
+	}
+
+	var user entities.User
+	if err := h.UserRepository.GetUserByUsername(c, &user, username); err != nil {
+		// User not found — create a dev sim user (no email verification needed)
+		hashedPw, hashErr := services.GetUserPasswordHash("SimPass123!")
+		if hashErr != nil {
+			responseHelper.InternalServerErrorStandard(c, hashErr.Error())
+			return hashErr
+		}
+		newUser := entities.NewUser("Sim", "User", username, username+"@coinhub.dev", hashedPw, entities.GmailVerificationStatusVerified, entities.StatusActive)
+		newUser.IsVerified = true
+		registerUC := user_usecases.NewRegisterUserUsecases(*h.TxManager)
+		if createErr := registerUC.Register(c, *h.WalletService, newUser); createErr != nil {
+			responseHelper.InternalServerErrorStandard(c, createErr.Error())
+			return createErr
+		}
+		user = *newUser
+	}
+
+	token, tokenErr := security.GenerateToken(user.ID.String())
+	if tokenErr != nil {
+		return tokenErr
+	}
+
+	responseHelper.SuccessStandard(c, schema.LoginUserResponse{
+		Code:     http.StatusOK,
+		Message:  "mock login successful",
+		JWTToken: token,
+	})
+	return nil
+}
+
 // LoginUserWithGmailHandler godoc
 // @Summary      Login user with gmail
 // @Description  Authenticate user using gmail and password, returns JWT token

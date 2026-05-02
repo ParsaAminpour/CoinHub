@@ -10,6 +10,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/plugins/admin"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
 	_ "github.com/GoAdminGroup/go-admin/adapter/gin"
 	_ "github.com/GoAdminGroup/go-admin/modules/db/drivers/postgres"
@@ -25,6 +26,8 @@ import (
 func SetupAdminPanel(router *gin.Engine, cfg *configs.Configuration) error {
 	eng := engine.Default()
 
+	zap.S().Infow("Setting up admin panel", "database_url", cfg.Storage.DatabaseUrl)
+
 	adminCfg := config.Config{
 		Databases: config.DatabaseList{
 			"default": {
@@ -33,7 +36,6 @@ func SetupAdminPanel(router *gin.Engine, cfg *configs.Configuration) error {
 			},
 		},
 		UrlPrefix:   "admin",
-		Domain:      "localhost",
 		Language:    "en",
 		Theme:       "adminlte",
 		Title:       "CoinHub Admin",

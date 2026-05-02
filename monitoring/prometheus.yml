@@ -8,7 +8,7 @@ scrape_configs:
   # change the target to "host.docker.internal:8083".
   - job_name: "coinhub_api"
     static_configs:
-      - targets: ["coinhub_api:8083"]
+      - targets: ["host.docker.internal:8083"]
     metrics_path: /metrics
 
   - job_name: "prometheus"
