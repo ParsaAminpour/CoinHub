@@ -13,6 +13,7 @@ type EventHeader struct {
 type OrderType string
 type OrderSide string
 type OrderStatus string
+type OrderBehavior string
 
 const (
 	OrderTypeLimit  OrderType = "limit"
@@ -27,4 +28,9 @@ const (
 	StatusFilled    OrderStatus = "filled"
 	StatusCancelled OrderStatus = "cancelled"
 	StatusExpired   OrderStatus = "expired" // TODO : determine the situation that we go into this status.
+
+	OrderBehaviorTIF OrderBehavior = "TIF"
+	OrderBehaviorGTC OrderBehavior = "GTC"
+	OrderBehaviorIOC OrderBehavior = "IOC"
+	OrderBehaviorALO OrderBehavior = "ALO"
 )

@@ -16,7 +16,7 @@ Supported order types: **limit**, **market**, **cancel**.
 
 Matching follows price-time priority with self-trade prevention. Partial fills are supported — any unfilled remainder of a limit order rests on the book at the given price level.
 
-**Order book structure (active development):** Price levels are currently sorted slices. We're replacing the per-level order storage with a B-Tree to get O(log n) insertion and lookup instead of O(n) scans — critical for deep books under high load.
+**Order book structure:** Price levels use a B-Tree, giving O(log n) insertion and lookup instead of O(n) scans — critical for deep books under high load.
 
 The flow end-to-end:
 ```
@@ -58,6 +58,14 @@ Supported networks: Base mainnet and Base Sepolia, switchable via `NETWORK_STATU
 ### Real-time Updates
 
 A WebSocket endpoint (`GET /v1/order/events/ws`) pushes order status changes to connected clients. The notification consumer reads `ORDER_*` events from Kafka and broadcasts to the relevant user's connection. There's also a blockchain WebSocket client that streams on-chain transfer events.
+
+---
+
+### Admin Panel
+
+A back-office interface mounted at `/admin`, powered by GoAdmin. Provides out-of-the-box UI to manage admin users, roles, permissions, and operation logs. Access requires a GoAdmin account (separate from the exchange user accounts).
+
+Default credentials (development): `admin` / `admin`
 
 ---
 
@@ -242,6 +250,7 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 | Prometheus | `http://localhost:9090` |
 | Kafka UI | `http://localhost:8080` |
 | Asynqmon (job monitor) | `http://localhost:8083/v1/monitoring` |
+| Admin panel | `http://localhost:8083/admin` |
 
 ---
 
@@ -255,13 +264,14 @@ Full Swagger docs are available at `/swagger/index.html` when running.
 
 ## Roadmap
 
-### In progress
+### Completed
 
-- [ ] B-Tree for order storage within price levels — replaces the current slice-based approach for O(log n) insertion/lookup in deep books (`internal/engine/orderbook.go`)
+- [x] B-Tree for order book price levels — O(log n) insertion/lookup replaces O(n) slice scans (`internal/engine/orderbook.go`)
+- [x] Admin panel — back-office UI for managing users, roles, and permissions (`/admin`)
+- [x] Asset creation endpoint — `POST /v1/system/operation/asset/add` (admin only)
 
 ### Features
 
-- [ ] Asset creation endpoint — admin flow to add new EVM assets without a manual DB insert (`internal/adapter/handler/http/asset.go`)
 - [ ] Asset info endpoints — public routes to query a single asset and list all assets with their network availability, trading pairs, and status (`internal/adapter/handler/http/asset.go`)
 - [ ] Multi-network config — currently hardcoded to support two networks simultaneously (`internal/infrastructure/configs/configs.go`)
 - [ ] Graceful shutdown — drain Kafka consumers and close DB/Redis/WebSocket connections cleanly on SIGTERM (`internal/application.go`)

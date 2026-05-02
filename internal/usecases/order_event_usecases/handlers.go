@@ -84,6 +84,17 @@ func (h *ProjectionHandler) HandleTradeExecutedEvent(ctx context.Context, event 
 	return nil
 }
 
+func (h *ProjectionHandler) HandleOrderExpiredEvent(ctx context.Context, event kafka.OrderStatusEvent, record *kgo.Record) error {
+	if err := h.MarkEvent(ctx, event); err != nil {
+		return err
+	}
+	if err := h.OrderRepository.UpdateOrderStatus(ctx, event.ID, entities.OrderStatus(event.Status), event.Filled); err != nil {
+		return err
+	}
+	zap.S().Infow("order expired", "consumer_name", h.ConsumerName, "event_id", event.EventID, "order_id", event.ID, "pair", event.Pair, "partition", record.Partition, "offset", record.Offset)
+	return nil
+}
+
 // ====== Order Notification Event Use Cases Handlers ======
 type NotificationHandler struct {
 	Deduper      EventDeduper
@@ -141,23 +152,5 @@ func (h *NotificationHandler) HandleNotificationForTrades(ctx context.Context, e
 	websocketMsg := coinhub_ws.NewMessage(coinhub_ws.TypeEvent, string(event.EventType), eventPayload)
 	hub.Hub.BroadcastUser(ctx, event.MakerUserID, websocketMsg)
 	hub.Hub.BroadcastUser(ctx, event.TakerUserID, websocketMsg)
-	return nil
-}
-
-func ValidateStatusEvent(event kafka.OrderStatusEvent) error {
-	if event.EventHeader.Version != "v1" {
-		return fmt.Errorf("unsupported event version: %s", event.EventHeader.Version)
-	}
-	if event.ID == "" || event.UserID == "" || event.Pair == "" {
-		err := errors.New("missing required event fields")
-		zap.S().Errorw("missing required event fields",
-			"error", err,
-			"event_id", event.ID,
-			"user_id", event.UserID,
-			"pair", event.Pair,
-			"event_header_version", event.EventHeader.Version,
-		)
-		return errors.New("missing required event fields")
-	}
 	return nil
 }

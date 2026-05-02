@@ -84,7 +84,7 @@ func PlaceLimitOrderHTTPHandler(c *gin.Context, handlerCtx *HttpAPIHandler) erro
 	orderUsecases := order_usecases.NewOrderUsecases(h.TxManager)
 	priceInDecimal, _ := decimal.NewFromString(req.Price)
 	qtyInDecimal, _ := decimal.NewFromString(req.Qty)
-	if err := orderUsecases.SubmitOrder(c, h.Engine, h.Producer, user.ID.String(), req.Symbol, entities.OrderType(req.OrderType), entities.OrderSide(req.Side), priceInDecimal, qtyInDecimal); err != nil {
+	if err := orderUsecases.SubmitOrder(c, h.Engine, h.Producer, user.ID.String(), req.Symbol, entities.OrderType(req.OrderType), entities.OrderSide(req.Side), priceInDecimal, qtyInDecimal, req.ExpireAt); err != nil {
 		return err
 	}
 
@@ -152,7 +152,7 @@ func PlaceMarketOrderHTTPHandler(c *gin.Context, handlerCtx *HttpAPIHandler) err
 
 	orderUsecases := order_usecases.NewOrderUsecases(h.TxManager)
 	qtyInDecimal, _ := decimal.NewFromString(req.Qty)
-	if err := orderUsecases.SubmitOrder(c, h.Engine, h.Producer, user.ID.String(), req.Symbol, entities.OrderTypeMarket, entities.OrderSide(req.Side), marketPrice, qtyInDecimal); err != nil {
+	if err := orderUsecases.SubmitOrder(c, h.Engine, h.Producer, user.ID.String(), req.Symbol, entities.OrderTypeMarket, entities.OrderSide(req.Side), marketPrice, qtyInDecimal, nil); err != nil {
 		return err
 	}
 

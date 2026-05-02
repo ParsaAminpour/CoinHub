@@ -129,7 +129,7 @@ func d(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }
 // newLimitOrder creates a limit order with an explicit ID so Kafka event
 // validation (which rejects empty IDs) doesn't silently fail.
 func newLimitOrder(id, userID, pair string, side engine.OrderSide, price, qty float64) *engine.Order {
-	o := engine.NewOrder(userID, pair, engine.OrderTypeLimit, side, d(price), d(qty))
+	o := engine.NewOrder(userID, pair, engine.OrderTypeLimit, side, d(price), d(qty), nil)
 	o.ID = id
 	return o
 }

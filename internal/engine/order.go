@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"coinhub/internal/domain/entities"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +11,7 @@ import (
 type OrderType string
 type OrderSide string
 type OrderStatus string
+type OrderBehavior string
 
 const (
 	OrderTypeLimit  OrderType = "limit"
@@ -23,6 +25,11 @@ const (
 	StatusPartial   OrderStatus = "partial"
 	StatusFilled    OrderStatus = "filled"
 	StatusCancelled OrderStatus = "cancelled"
+
+	OrderBehaviorTIF OrderBehavior = "TIF"
+	OrderBehaviorGTC OrderBehavior = "GTC"
+	OrderBehaviorIOC OrderBehavior = "IOC"
+	OrderBehaviorALO OrderBehavior = "ALO"
 )
 
 // NOTE : the price and quntitiy section would be decimal.Zero if the order type was cancel.
@@ -32,10 +39,12 @@ type Order struct {
 	Pair      string // NOTE : the Order in engine and kafka is in BTC-USDT format, unlikely in DB which is BTC/USDT format.
 	Type      OrderType
 	Side      OrderSide
+	Behavior  OrderBehavior
 	Price     decimal.Decimal // zero for market orders
 	Quantity  decimal.Decimal // original quantity, it should be immutable
 	Filled    decimal.Decimal // how much has been matched so far, it's mutable
 	Status    OrderStatus     // The status won't be filled unless the Remaining was zero
+	ExpiresAt time.Time       // resting book expiry (default placement + entities.DefaultRestingOrderLifetime)
 	Timestamp time.Time
 }
 
@@ -46,18 +55,22 @@ func NewOrder(
 	side OrderSide,
 	price decimal.Decimal,
 	quantity decimal.Decimal,
+	expireAt *time.Time,
 ) *Order {
+	now := time.Now()
 	return &Order{
 		ID:        uuid.NewString(),
 		UserID:    userID,
 		Pair:      pair,
 		Type:      orderType,
 		Side:      side,
+		Behavior:  OrderBehaviorGTC,
 		Price:     price,
 		Quantity:  quantity,
 		Filled:    decimal.Zero,
 		Status:    StatusOpen,
-		Timestamp: time.Now(),
+		ExpiresAt: entities.RestingOrderExpiresAt(expireAt, now),
+		Timestamp: now,
 	}
 }
 

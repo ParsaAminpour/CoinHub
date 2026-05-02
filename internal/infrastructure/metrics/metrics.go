@@ -50,6 +50,22 @@ var (
 		[]string{"pair"},
 	)
 
+	OrdersExpiredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "coinhub_orders_expired_total",
+			Help: "Total orders expired and removed by the reaper.",
+		},
+		[]string{"pair"},
+	)
+
+	ReaperRemovalFailedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "coinhub_reaper_removal_failed_total",
+			Help: "Total reaper removal attempts where the order was not found in the orderbook (already filled or cancelled).",
+		},
+		[]string{"pair"},
+	)
+
 	TradesExecutedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "coinhub_trades_executed_total",
@@ -106,6 +122,8 @@ func Init() {
 			OrdersSubmittedTotal,
 			OrdersMatchedTotal,
 			OrdersCancelledTotal,
+			OrdersExpiredTotal,
+			ReaperRemovalFailedTotal,
 			TradesExecutedTotal,
 			KafkaEventsPublishedTotal,
 			KafkaEventsConsumedTotal,

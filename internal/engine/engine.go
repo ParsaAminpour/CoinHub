@@ -2,6 +2,7 @@ package engine
 
 import (
 	"coinhub/internal/adapter/messaging/kafka"
+	"container/heap"
 
 	adapterkafka "coinhub/internal/adapter/messaging/kafka"
 	"coinhub/internal/domain/repositories"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 )
@@ -56,6 +58,8 @@ type MatchEngine struct {
 	OrderRouter        *OrderRouter
 	OrderEventProducer *kafka.EngineEventProducer
 	OrderEventConsumer *kafka.OrderEventConsumer
+
+	Reaper *BookReaper // synthetic order heap
 }
 
 type SupportedPairLight struct {
@@ -84,10 +88,12 @@ func NewMatchEngine(ctx context.Context, configs configs.Configuration, availabl
 		return nil, err
 	}
 	orderbooks := initializeOrderbooks(availableAssets)
+	orderReaper := initializeReaper(ctx)
 	return &MatchEngine{
 		Orderbooks:         orderbooks,
 		OrderRouter:        orderRouter,
 		OrderEventProducer: orderEventProduced,
+		Reaper:             &orderReaper,
 	}, nil
 }
 
@@ -99,9 +105,17 @@ func initializeOrderbooks(availableAssets []SupportedPairLight) map[string]*Orde
 		}
 		orderbooks[*asset.Symbol] = &Orderbook{
 			Pair: *asset.Symbol,
+			Bids: NewSide(32, false),
+			Asks: NewSide(32, true),
 		}
 	}
 	return orderbooks
+}
+
+func initializeReaper(ctx context.Context) BookReaper {
+	reaper := make(BookReaper, 0)
+	heap.Init(&reaper)
+	return reaper
 }
 
 func initializeEventProducer(ctx context.Context, configs configs.Configuration) (*kafka.EngineEventProducer, error) {
@@ -168,12 +182,19 @@ func (me *MatchEngine) SubmitOrder(eventProducer *kafka.EngineEventProducer, inc
 	rawOrderEventForIncomingOrder := kafka.NewOrderEvent(
 		incomingOrder.ID, incomingOrder.UserID, incomingOrder.Pair, kafka.OrderType(incomingOrder.Type), kafka.StatusOpen, kafka.EventOrderSubmitted,
 		kafka.OrderSide(incomingOrder.Side), incomingOrder.Price, incomingOrder.Quantity, incomingOrder.Filled, incomingOrder.Remaining(),
+		kafka.OrderBehavior(incomingOrder.Behavior),
+		incomingOrder.ExpiresAt,
 	)
 
 	if err := eventProducer.PublishOrderEvent(rawOrderEventForIncomingOrder); err != nil {
 		zap.S().Errorw("Failed to publish order event", "error", err, "orderID", incomingOrder.ID)
 		return fmt.Errorf("%w: %w", ErrPublishOrderEventFailed, err)
 	}
+
+	// add the order to the synthtic order heap (not orderbook)
+	item := NewExpiryEntity(incomingOrder.ExpiresAt, incomingOrder.Pair, incomingOrder.ID, incomingOrder.Price, incomingOrder.Side, me.Reaper.Len())
+	heap.Push(me.Reaper, item)
+
 	metrics.OrdersSubmittedTotal.WithLabelValues(incomingOrder.Pair, string(incomingOrder.Type), string(incomingOrder.Side)).Inc()
 	return nil
 }
@@ -192,6 +213,8 @@ func (me *MatchEngine) SubmitCancelOrder(eventProducer *kafka.EngineEventProduce
 		incomingCancelOrder.Quantity,
 		incomingCancelOrder.Filled,
 		incomingCancelOrder.Remaining(),
+		kafka.OrderBehavior(incomingCancelOrder.Behavior),
+		incomingCancelOrder.ExpiresAt,
 	)
 	if err := eventProducer.PublishOrderEvent(rawCancelOrderEvent); err != nil {
 		zap.S().Errorw("Failed to publish cancel order event", "error", err, "orderID", incomingCancelOrder.ID)
@@ -251,11 +274,17 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.EngineEventPro
 		"filled", event.Filled,
 		"status", event.Status,
 		"remaining_qty", event.RemainingQty,
+		"expires_at", event.ExpiresAt,
 		"event_type", event.EventType,
 		"event_version", event.Version,
 		"event_occured_at", event.OccuredAt,
 	)
 
+	var expPtr *time.Time
+	if !event.ExpiresAt.IsZero() {
+		exp := event.ExpiresAt.UTC()
+		expPtr = &exp
+	}
 	order := NewOrder(
 		event.UserID,
 		event.Pair,
@@ -263,7 +292,11 @@ func (me *MatchEngine) routeOrderEventFanOut(eventProducer *kafka.EngineEventPro
 		OrderSide(event.Side),
 		event.Price,
 		event.Quantity,
+		expPtr,
 	)
+	if event.Behavior != "" {
+		order.Behavior = OrderBehavior(event.Behavior)
+	}
 	me.OrderRouter.addOrder(event.Pair, order)
 	return nil
 }
@@ -288,14 +321,14 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 	runner := kafkaconsumer.NewRunner(
 		me.OrderEventConsumer.GetConsumer(),
 		func(handlerCtx context.Context, event any, record *kgo.Record) error {
-			if err := order_event_usecases.ValidateStatusEvent(event.(adapterkafka.OrderStatusEvent)); err != nil {
-				return err
-			}
 			zap.S().Info("Consuming order status event calls Handle for pair:", event.(adapterkafka.OrderStatusEvent).Pair)
 
 			metrics.KafkaEventsConsumedTotal.WithLabelValues(record.Topic).Inc()
 			switch event.(type) {
 			case adapterkafka.OrderStatusEvent:
+				if err := ValidateOrderStatusEvent(event.(adapterkafka.OrderStatusEvent)); err != nil {
+					return err
+				}
 				if err := handler.HandleIncmingOrder(handlerCtx, event.(adapterkafka.OrderStatusEvent), record); err != nil {
 					return err
 				}
@@ -303,6 +336,9 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 					return err
 				}
 			case adapterkafka.TradeStatusEvent:
+				if err := ValidateTradeStatusEvent(event.(adapterkafka.TradeStatusEvent)); err != nil {
+					return err
+				}
 				if err := handler.HandleTradeExecutedEvent(handlerCtx, event.(adapterkafka.TradeStatusEvent), record); err != nil {
 					return err
 				}
@@ -354,6 +390,16 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 		zap.S().Infow("orderMainConsumer goroutine finished")
 	}()
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		zap.S().Info("orderReaper goroutine started")
+		if err := me.orderReaper(ctx, kafkaProducer); err != nil {
+			zap.S().Errorw("orderReaper error", "error", err)
+		}
+		zap.S().Info("orderReaper goroutine finished")
+	}()
+
 	go func() {
 		<-ctx.Done()
 		zap.S().Info("the context terminated")
@@ -361,6 +407,58 @@ func (me *MatchEngine) Run(ctx /*backgroundCtx*/ context.Context, wg *sync.WaitG
 
 	wg.Wait()
 	return nil
+}
+
+func (me *MatchEngine) orderReaper(ctx context.Context, kafkaProducer *kafka.EngineEventProducer) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// drain all expired entries at the top of the min-heap
+			for me.Reaper.Len() > 0 {
+				top := (*me.Reaper)[0]
+				if !top.isExpired() {
+					break // min-heap: nothing deeper is expired either
+				}
+				item := heap.Pop(me.Reaper).(*expiryEntity)
+				// check the order existence in the orderbook
+				if me.Orderbooks[item.pair].OrderExist(ctx, item.side, item.orderID) {
+					removed := me.Orderbooks[item.pair].RemoveOrderByOrderID(ctx, item.side, item.orderID, item.price)
+					if !removed {
+						zap.S().Warnw("reaper: order not found for removal — may have been filled or cancelled",
+							"order_id", item.orderID, "pair", item.pair, "side", item.side, "price", item.price, "expires_at", item.expiresAt,
+						)
+						metrics.ReaperRemovalFailedTotal.WithLabelValues(item.pair).Inc()
+						continue
+					}
+					metrics.OrdersExpiredTotal.WithLabelValues(item.pair).Inc()
+					// Create new expiry event (emit to Kafka OrderExpired topic)
+					expiryEvent := kafka.NewOrderEvent(
+						item.orderID,
+						"", // userID unknown from expiryEntity, can be filled if tracked elsewhere
+						item.pair,
+						kafka.OrderType(OrderTypeLimit), // Assumed type; adjust if needed
+						kafka.StatusExpired,             // Status for expired
+						kafka.EventOrderExpired,         // Mark as order expired
+						kafka.OrderSide(item.side),
+						item.price,
+						decimal.Zero,               // Quantity unknown here
+						decimal.Zero,               // Filled unknown here
+						decimal.Zero,               // Remaining unknown here
+						kafka.OrderBehavior("GTC"), // Could not infer from expiryEntity
+						item.expiresAt,
+					)
+					// other operations will handle by the associated consumer for EXPIRATION event
+					if err := kafkaProducer.PublishOrderEvent(expiryEvent); err != nil {
+						zap.S().Errorw("Failed to publish order expiry event", "error", err, "orderID", item.orderID)
+					}
+				}
+			}
+		}
+	}
 }
 
 func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *kafka.EngineEventProducer, assetRepository repositories.AssetRepository, orderRepository repositories.OrderRepository, tradeRepository repositories.TradeRepository, matchEngine *MatchEngine, configs configs.Configuration) error {
@@ -372,7 +470,7 @@ func SetupMatchEngine(ctx context.Context, wg *sync.WaitGroup, kafkaProducer *ka
 }
 
 func (me *MatchEngine) CloseOrderbookGracefuly(ctx context.Context) error {
-	// graceful shutdown the message queues.
+	// TODO : graceful shutdown the message queues.
 	return nil
 }
 

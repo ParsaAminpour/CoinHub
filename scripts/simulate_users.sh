@@ -230,7 +230,7 @@ lurker() {
     local action=$(rand_int 1 10)
 
     if (( action <= 5 )); then
-      get "$BASE/v1/ping" > /dev/null
+      get "$BASE/v1/health" > /dev/null
     elif (( action <= 7 )); then
       login_fail > /dev/null
     elif (( action == 8 )); then
@@ -305,7 +305,7 @@ echo "  Target   : $BASE"
 echo "=============================================="
 
 # verify app is up
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/v1/ping")
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/v1/health")
 if [ "$STATUS" != "200" ]; then
   echo "ERROR: app not reachable at $BASE (got $STATUS). Is it running?"
   exit 1

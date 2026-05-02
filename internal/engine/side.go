@@ -5,7 +5,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// NOTE : Degree t controls the minimum, not maximum, with degree := t we have (t - 1) as min keys per node and (2t - 1) as max keys per node
+// NOTE : Degree `t` controls the minimum, not maximum, with degree := `t` we have (t - 1) as min keys per node and (2t - 1) as max keys per node
 //
 //	and the min children of (t) and the max children of (2t).
 //
@@ -21,6 +21,9 @@ type Side struct {
 }
 
 func NewSide(degree int, isAsk bool) Side {
+	if degree == 0 {
+		degree = 32 // default degree to 32
+	}
 	// true if within that ordering, 'a' < 'b'.
 	less := func(a, b *PriceLevel) bool {
 		if isAsk {
