@@ -4,6 +4,7 @@ import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/messaging/kafka"
 	adapterkafka "coinhub/internal/adapter/messaging/kafka"
+	"coinhub/internal/engine"
 	"coinhub/internal/infrastructure/configs"
 	kafkaconsumer "coinhub/internal/infrastructure/kafka/consumer"
 	"coinhub/internal/usecases/order_event_usecases"
@@ -80,7 +81,7 @@ func RunOrderProjectionConsumer(configs *configs.Configuration) *cobra.Command {
 			runner := kafkaconsumer.NewRunner(
 				consumerClient,
 				func(handlerCtx context.Context, event any, record *kgo.Record) error {
-					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
+					if err := engine.ValidateOrderStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
 						return err
 					}
 					return handler.UpdateOrderStatus(handlerCtx, event.(kafka.OrderStatusEvent), record)

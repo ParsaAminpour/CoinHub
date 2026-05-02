@@ -3,6 +3,7 @@ package cmd
 import (
 	"coinhub/internal"
 	"coinhub/internal/adapter/messaging/kafka"
+	"coinhub/internal/engine"
 	"coinhub/internal/infrastructure/configs"
 	kafkaconsumer "coinhub/internal/infrastructure/kafka/consumer"
 	"coinhub/internal/usecases/order_event_usecases"
@@ -76,15 +77,18 @@ func RunNotificationConsumer(configs *configs.Configuration) *cobra.Command {
 			runner := kafkaconsumer.NewRunner(
 				consumerClient,
 				func(handlerCtx context.Context, event any, record *kgo.Record) error {
-					if err := order_event_usecases.ValidateStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
-						return err
-					}
 					switch event.(type) {
 					case kafka.OrderStatusEvent:
+						if err := engine.ValidateOrderStatusEvent(event.(kafka.OrderStatusEvent)); err != nil {
+							return err
+						}
 						if err := handler.HandleNotificationForOrders(handlerCtx, event.(kafka.OrderStatusEvent), record, app.WebsocketNotificationServer); err != nil {
 							return err
 						}
 					case kafka.TradeStatusEvent:
+						if err := engine.ValidateTradeStatusEvent(event.(kafka.TradeStatusEvent)); err != nil {
+							return err
+						}
 						if err := handler.HandleNotificationForTrades(handlerCtx, event.(kafka.TradeStatusEvent), record, app.WebsocketNotificationServer); err != nil {
 							return err
 						}

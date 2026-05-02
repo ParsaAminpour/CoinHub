@@ -1,9 +1,18 @@
 package engine
 
 import (
+	"coinhub/internal/adapter/messaging/kafka"
+	adapterkafka "coinhub/internal/adapter/messaging/kafka"
+	"errors"
 	"fmt"
 	"strings"
+
+	"go.uber.org/zap"
 )
+
+type EventType interface {
+	adapterkafka.OrderStatusEvent | adapterkafka.TradeStatusEvent
+}
 
 func (a *SupportedPairLight) fixSupportedPairLight() error {
 	if !strings.Contains(*a.Symbol, "-") {
@@ -25,4 +34,53 @@ func removeEmptyLevels(levels []*PriceLevel) []*PriceLevel {
 		}
 	}
 	return result
+}
+
+func ValidateOrderStatusEvent(event kafka.OrderStatusEvent) error {
+	if event.EventHeader.Version != "v1" {
+		return fmt.Errorf("unsupported event version: %s", event.EventHeader.Version)
+	}
+	if event.ID == "" || event.UserID == "" || event.Pair == "" {
+		err := errors.New("missing required event fields")
+		zap.S().Errorw("missing required event fields",
+			"error", err,
+			"event_id", event.ID,
+			"user_id", event.UserID,
+			"pair", event.Pair,
+			"event_header_version", event.EventHeader.Version,
+		)
+		return errors.New("missing required event fields")
+	}
+	return nil
+}
+
+func ValidateTradeStatusEvent(event kafka.TradeStatusEvent) error {
+	if event.EventHeader.Version != "v1" {
+		return fmt.Errorf("unsupported event version: %s", event.EventHeader.Version)
+	}
+	if event.MakerUserID == "" {
+		return fmt.Errorf("missing maker user id")
+	}
+	if event.TakerUserID == "" {
+		return fmt.Errorf("missing taker user id")
+	}
+	if event.MakerOrderID == "" {
+		return fmt.Errorf("missing maker order id")
+	}
+	if event.TakerOrderID == "" {
+		return fmt.Errorf("missing taker order id")
+	}
+	if event.Pair == "" {
+		return fmt.Errorf("missing pair")
+	}
+	if !(strings.Contains(event.Pair, "-") || strings.Contains(event.Pair, "/")) {
+		return fmt.Errorf("pair should be in format BASE-QUOTE or BASE/QUOTE")
+	}
+	if event.Price.IsNegative() {
+		return fmt.Errorf("price should not be negative")
+	}
+	if event.Quantity.IsNegative() {
+		return fmt.Errorf("quantity should not be negative")
+	}
+	return nil
 }

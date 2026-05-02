@@ -143,21 +143,3 @@ func (h *NotificationHandler) HandleNotificationForTrades(ctx context.Context, e
 	hub.Hub.BroadcastUser(ctx, event.TakerUserID, websocketMsg)
 	return nil
 }
-
-func ValidateStatusEvent(event kafka.OrderStatusEvent) error {
-	if event.EventHeader.Version != "v1" {
-		return fmt.Errorf("unsupported event version: %s", event.EventHeader.Version)
-	}
-	if event.ID == "" || event.UserID == "" || event.Pair == "" {
-		err := errors.New("missing required event fields")
-		zap.S().Errorw("missing required event fields",
-			"error", err,
-			"event_id", event.ID,
-			"user_id", event.UserID,
-			"pair", event.Pair,
-			"event_header_version", event.EventHeader.Version,
-		)
-		return errors.New("missing required event fields")
-	}
-	return nil
-}

@@ -288,14 +288,14 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 	runner := kafkaconsumer.NewRunner(
 		me.OrderEventConsumer.GetConsumer(),
 		func(handlerCtx context.Context, event any, record *kgo.Record) error {
-			if err := order_event_usecases.ValidateStatusEvent(event.(adapterkafka.OrderStatusEvent)); err != nil {
-				return err
-			}
 			zap.S().Info("Consuming order status event calls Handle for pair:", event.(adapterkafka.OrderStatusEvent).Pair)
 
 			metrics.KafkaEventsConsumedTotal.WithLabelValues(record.Topic).Inc()
 			switch event.(type) {
 			case adapterkafka.OrderStatusEvent:
+				if err := ValidateOrderStatusEvent(event.(adapterkafka.OrderStatusEvent)); err != nil {
+					return err
+				}
 				if err := handler.HandleIncmingOrder(handlerCtx, event.(adapterkafka.OrderStatusEvent), record); err != nil {
 					return err
 				}
@@ -303,6 +303,9 @@ func (me *MatchEngine) orderMainConsumer(ctx context.Context, kafkaProducer *kaf
 					return err
 				}
 			case adapterkafka.TradeStatusEvent:
+				if err := ValidateTradeStatusEvent(event.(adapterkafka.TradeStatusEvent)); err != nil {
+					return err
+				}
 				if err := handler.HandleTradeExecutedEvent(handlerCtx, event.(adapterkafka.TradeStatusEvent), record); err != nil {
 					return err
 				}
