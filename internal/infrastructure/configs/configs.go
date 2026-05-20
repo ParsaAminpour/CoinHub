@@ -33,7 +33,7 @@ type Configuration struct {
 		Env   string `env:"APP_ENV" env-default:"DEVELOPMENT"` // DEVELOPMENT, PRODUCTION
 		Debug bool   `env:"APP_DEBUG" env-default:"True"`
 
-		Name string `env:"APP_NAME" env-default:"coinhub-service"`
+		Name string `env:"APP_NAME" env-default:"accelerate-service"`
 		Host string `env:"APP_HOST" env-default:"0.0.0.0"`
 		Port string `env:"APP_PORT" env-default:"8001"`
 
@@ -84,8 +84,8 @@ type Configuration struct {
 		Redis struct {
 			Host     string `env:"STORAGE_REDIS_HOST" env-required:"true"`
 			Port     int    `env:"STORAGE_REDIS_PORT" env-required:"true"`
-			Username string `env:"STORAGE_REDIS_USERNAME" env-required:"true"`
-			Password string `env:"STORAGE_REDIS_PASSWORD" env-required:"true"`
+			Username string `env:"STORAGE_REDIS_USERNAME"`
+			Password string `env:"STORAGE_REDIS_PASSWORD"`
 		}
 	}
 
@@ -100,7 +100,7 @@ type Configuration struct {
 		SMTPUsername string `env:"MAIL_SMTP_USERNAME" env-required:"true"`
 		SMTPPassword string `env:"MAIL_SMTP_PASSWORD" env-required:"true"`
 		FromEmail    string `env:"MAIL_FROM_EMAIL" env-required:"true"`
-		FromName     string `env:"MAIL_FROM_NAME" default:"Coinhub"`
+		FromName     string `env:"MAIL_FROM_NAME" default:"Accelerate"`
 	}
 
 	Market struct {
@@ -123,6 +123,6 @@ func (c *Configuration) PrepareConfig() {
 	c.App.Env = strings.ToUpper(c.App.Env)
 }
 
-func (c *Configuration) RedisAddress() string {
+func (c Configuration) RedisAddress() string {
 	return fmt.Sprintf("%s:%d", c.Storage.Redis.Host, c.Storage.Redis.Port)
 }
